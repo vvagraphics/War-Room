@@ -5,80 +5,9 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { createClient } from '@supabase/supabase-js';
+import { Task, TaskStatus, AccessStrategy, Profile, UserPresence, BroadcastPayload, AuditLog, ChecklistItem } from '@/types/warroom';
 
 // --- TYPES & INTERFACES ---
-export type TaskStatus = 'todo' | 'in-progress' | 'done';
-export type AccessStrategy = 'anyone' | 'just-me' | 'custom';
-export type UserRole = 'admin' | 'developer';
-
-export interface AuditLog {
-  movedBy: string;
-  fromStatus: TaskStatus;
-  toStatus: TaskStatus;
-  timestamp: string;
-  notes?: string;
-  actionType?: 'status_change' | 'session_handover' | 'timeout_recovery' | 'checklist_toggle';
-  checklistText?: string;
-}
-
-export interface ChecklistItem {
-  id: string;
-  text: string;
-  isCompleted: boolean;
-  updatedBy?: string;
-  updatedByName?: string;
-  updatedAt?: string;
-}
-
-export interface ActiveWorkSession {
-  userId: string;
-  userName: string;
-  startedAt: string;
-  lastCheckedInAt: string;
-}
-
-export interface Task {
-  id: string;
-  title: string;
-  description?: string;
-  status: TaskStatus;
-  position: number;
-  createdBy: string;
-  createdByName: string;
-  lastMovedBy?: string;
-  history: AuditLog[];
-  editStrategy: AccessStrategy;
-  moveStrategy: AccessStrategy;
-  permittedEditors: string[];
-  permittedMovers: string[];
-  checklist: ChecklistItem[];
-  activeSession?: ActiveWorkSession;
-}
-
-export interface Profile {
-  id: string;
-  name: string;
-  color: string;
-  badge: string;
-  role: UserRole;
-}
-
-export interface UserPresence {
-  id: string;
-  name: string;
-  color: string;
-  x: number;
-  y: number;
-}
-
-export interface BroadcastPayload {
-  type: 'cursor';
-  userId: string;
-  userName: string;
-  color: string;
-  payload: { x: number; y: number };
-}
-
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 
@@ -93,48 +22,41 @@ const getSupabase = () => {
 };
 
 const COLUMNS: { id: TaskStatus; title: string; border: string; accent: string }[] = [
-  { id: 'todo', title: 'Backlog Queue', border: 'border-blue-900/30', accent: 'bg-blue-500' },
-  { id: 'in-progress', title: 'Active Sprints', border: 'border-amber-900/30', accent: 'bg-amber-500' },
-  { id: 'done', title: 'Production Ready (Admins Only)', border: 'border-emerald-900/30', accent: 'bg-emerald-500' },
+  { id: 'todo', title: 'To Do Queue', border: 'border-blue-900/30', accent: 'bg-blue-500' },
+  { id: 'in-progress', title: 'In Progress', border: 'border-amber-900/30', accent: 'bg-amber-500' },
+  { id: 'done', title: 'Done', border: 'border-emerald-900/30', accent: 'bg-emerald-500' }
 ];
 
 const TEST_USERS: Profile[] = [
   { id: 'dev_alpha_01', name: 'Alpha_Engineer', color: '#3b82f6', badge: 'Lead Arch', role: 'admin' },
   { id: 'dev_beta_02', name: 'Beta_Engineer', color: '#ef4444', badge: 'Core Dev', role: 'developer' },
-  { id: 'dev_gamma_03', name: 'Gamma_Engineer', color: '#10b981', badge: 'QA Analyst', role: 'developer' }
+  { id: 'dev_gamma_03', name: 'Gamma_Engineer', color: '#10b981', badge: 'Junior Contractor', role: 'guest' }
 ];
 
-const STRATEGY_THEMES: Record<AccessStrategy, { btn: string; active: string; text: string; bgCard: string }> = {
-  anyone: {
-    btn: 'bg-zinc-900 text-emerald-400 border-emerald-900/40 hover:border-emerald-700/60',
-    active: 'bg-emerald-500 text-zinc-950 border-emerald-400 font-bold',
-    text: 'text-emerald-400',
-    bgCard: 'border-l-4 border-l-emerald-500/70'
-  },
-  'just-me': {
-    btn: 'bg-zinc-900 text-rose-400 border-rose-900/40 hover:border-rose-700/60',
-    active: 'bg-rose-500 text-zinc-950 border-rose-400 font-bold',
-    text: 'text-rose-400',
-    bgCard: 'border-l-4 border-l-rose-500/70'
-  },
-  custom: {
-    btn: 'bg-zinc-900 text-sky-400 border-sky-900/40 hover:border-sky-700/60',
-    active: 'bg-sky-500 text-zinc-950 border-sky-400 font-bold',
-    text: 'text-sky-400',
-    bgCard: 'border-l-4 border-l-sky-500/70'
-  }
+const STRATEGY_THEMES: Record<AccessStrategy, { text: string; bgCard: string }> = {
+  anyone: { text: 'text-emerald-400', bgCard: 'border-l-4 border-l-emerald-500/70' },
+  'just-me': { text: 'text-rose-400', bgCard: 'border-l-4 border-l-rose-500/70' },
+  custom: { text: 'text-sky-400', bgCard: 'border-l-4 border-l-sky-500/70' }
 };
 
 export default function WarRoom() {
+  // --- STATE & INITIALIZATION ---
   const [mounted, setMounted] = useState<boolean>(false);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [presences, setPresences] = useState<Record<string, UserPresence>>({});
   const [currentUser, setCurrentUser] = useState<Profile | null>(null);
   const [timeTicker, setTimeTicker] = useState<number>(Date.now());
   const [savedTasks, setSavedTasks] = useState<Record<string, boolean>>({});
+  
+  // Mobile / Screen View Controls
+  const [activeMobileTab, setActiveMobileTab] = useState<TaskStatus>('todo');
+  const [activeMoveMenuId, setActiveMoveMenuId] = useState<string | null>(null);
 
+  // Modals and Drawers
   const [activeHistoryTask, setActiveHistoryTask] = useState<Task | null>(null);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
+  
+  // Edit Form Fields State
   const [editTitle, setEditTitle] = useState<string>('');
   const [editDesc, setEditDesc] = useState<string>('');
   const [editEditStrategy, setEditEditStrategy] = useState<AccessStrategy>('anyone');
@@ -144,6 +66,7 @@ export default function WarRoom() {
   const [editChecklist, setEditChecklist] = useState<ChecklistItem[]>([]);
   const [newChecklistItemText, setNewChecklistItemText] = useState<string>('');
 
+  // Creation Form Fields State
   const [isAddingTask, setIsAddingTask] = useState<boolean>(false);
   const [addTaskStatus, setAddTaskStatus] = useState<TaskStatus>('todo');
   const [newTitle, setNewTitle] = useState<string>('');
@@ -155,6 +78,7 @@ export default function WarRoom() {
   const [newChecklist, setNewChecklist] = useState<ChecklistItem[]>([]);
   const [creationChecklistInput, setCreationChecklistInput] = useState<string>('');
 
+  // Session Handover Release Form State
   const [handoffTask, setHandoffTask] = useState<Task | null>(null);
   const [handoffNotes, setHandoffNotes] = useState<string>('');
 
@@ -172,7 +96,7 @@ export default function WarRoom() {
     status: (item.status as TaskStatus) || 'todo',
     position: Number(item.position) || 0,
     createdBy: item.created_by || '',
-    createdByName: item.created_by_name || 'System Node',
+    createdByName: item.created_by_name || 'System User',
     lastMovedBy: item.last_moved_by || undefined,
     history: item.history || [],
     editStrategy: (item.edit_strategy as AccessStrategy) || 'anyone',
@@ -183,7 +107,7 @@ export default function WarRoom() {
     activeSession: item.active_session || undefined
   });
 
-  // --- NATIVE REALTIME LIFECYCLE SYNC ---
+  // --- NATIVE API INTEGRATION LOOP ---
   useEffect(() => {
     setMounted(true);
     if (typeof window !== 'undefined') {
@@ -191,13 +115,13 @@ export default function WarRoom() {
       if (savedUser) {
         try {
           const parsed = JSON.parse(savedUser);
-          if (parsed && parsed.id && !parsed.role) {
+          if (parsed && parsed.id) {
             const staticMatch = TEST_USERS.find(u => u.id === parsed.id);
-            parsed.role = staticMatch ? staticMatch.role : 'developer';
+            if (staticMatch) parsed.role = staticMatch.role;
+            setCurrentUser(parsed);
           }
-          setCurrentUser(parsed);
         } catch (e) {
-          console.error('Profile parsing structural abort:', e);
+          console.error('Failed to parse user session profile:', e);
         }
       }
     }
@@ -210,7 +134,7 @@ export default function WarRoom() {
       .select('*')
       .order('position', { ascending: true })
       .then(({ data, error }) => {
-        if (error) console.error('Snapshot baseline error:', error);
+        if (error) console.error('Error fetching database items:', error);
         if (data) setTasks(data.map(normalizeTaskPayload));
       });
 
@@ -220,7 +144,7 @@ export default function WarRoom() {
         if (payload.eventType === 'INSERT') {
           const newTask = normalizeTaskPayload(payload.new);
           setTasks((prev) => {
-            if (prev.some(t => t.id === newTask.id)) return prev;
+            if (prev.some((t) => t.id === newTask.id)) return prev;
             return [...prev, newTask].sort((a, b) => a.position - b.position);
           });
         } else if (payload.eventType === 'UPDATE') {
@@ -249,7 +173,7 @@ export default function WarRoom() {
               color: payload.color,
               x: payload.payload.x,
               y: payload.payload.y,
-            },
+            }
           }));
         }
       })
@@ -280,18 +204,6 @@ export default function WarRoom() {
           return { ...merged, ...activeUsers };
         });
       })
-      .on('presence', { event: 'leave' }, ({ leftPresences }: any) => {
-        if (!leftPresences) return;
-        leftPresences.forEach((p: any) => {
-          if (p.id) {
-            setPresences((prev) => {
-              const next = { ...prev };
-              delete next[p.id];
-              return next;
-            });
-          }
-        });
-      })
       .subscribe();
 
     const tickerInterval = setInterval(() => {
@@ -317,14 +229,14 @@ export default function WarRoom() {
     });
   }, [currentUser]);
 
+  // Session Timeout Heartbeat Loop (Strict 1 minute testing limit)
   useEffect(() => {
     const checkDeadSessionsAndAlert = async () => {
       if (!currentUser) return;
-      const testingTimeoutThreshold = 60000;
-      const warningAudioHorizon = 30000;
+      const testingTimeoutThreshold = 60000; // 1 minute session runtime limit
+      const warningAudioHorizon = 30000;    // Alarm warning alerts start at 30 seconds left
       const now = Date.now();
       let playWarningBeep = false;
-
       const supabase = getSupabase();
       if (!supabase) return;
 
@@ -335,12 +247,12 @@ export default function WarRoom() {
 
           if (contextAge > testingTimeoutThreshold) {
             const systemLog: AuditLog = {
-              movedBy: 'System Engine Protocol',
+              movedBy: 'System Auto-Drop',
               fromStatus: task.status,
               toStatus: task.status,
               timestamp: new Date().toISOString(),
               actionType: 'timeout_recovery',
-              notes: `Testing level timeout recovery triggered. Session dropped for user ${task.activeSession.userName} due to activity ping starvation (> 1 minute missing verification).`
+              notes: `Time limit exceeded. Session cleared for user ${task.activeSession.userName}.`
             };
             await supabase
               .from('tasks')
@@ -355,13 +267,13 @@ export default function WarRoom() {
         }
       }
 
-      if (playWarningBeep && now - lastAlertPlayedRef.current >= 1200) {
+      if (playWarningBeep && now - lastAlertPlayedRef.current >= 1500) {
         lastAlertPlayedRef.current = now;
         triggerNativeAlarmNotification();
       }
     };
 
-    const runCheck = setInterval(checkDeadSessionsAndAlert, 2000);
+    const runCheck = setInterval(checkDeadSessionsAndAlert, 1000);
     return () => clearInterval(runCheck);
   }, [tasks, currentUser]);
 
@@ -372,16 +284,16 @@ export default function WarRoom() {
       }
       const ctx = audioCtxRef.current;
       if (ctx.state === 'suspended') ctx.resume();
-      if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
-
+      if (navigator.vibrate) navigator.vibrate([300, 150, 300]);
       const nowTime = ctx.currentTime;
+
       const playToneNode = (freq: number, startOffset: number, length: number) => {
         const osc = ctx.createOscillator();
         const gainNode = ctx.createGain();
-        osc.type = 'triangle';
+        osc.type = 'sawtooth';
         osc.frequency.setValueAtTime(freq, nowTime + startOffset);
         gainNode.gain.setValueAtTime(0.001, nowTime + startOffset);
-        gainNode.gain.linearRampToValueAtTime(0.2, nowTime + startOffset + 0.05);
+        gainNode.gain.linearRampToValueAtTime(0.15, nowTime + startOffset + 0.05);
         gainNode.gain.exponentialRampToValueAtTime(0.001, nowTime + startOffset + length - 0.02);
         osc.connect(gainNode);
         gainNode.connect(ctx.destination);
@@ -389,15 +301,14 @@ export default function WarRoom() {
         osc.stop(nowTime + startOffset + length);
       };
 
-      playToneNode(880, 0, 0.25);
-      playToneNode(1320, 0.05, 0.2);
-      playToneNode(880, 0.4, 0.25);
-      playToneNode(1320, 0.45, 0.2);
+      playToneNode(660, 0, 0.2);
+      playToneNode(660, 0.25, 0.2);
     } catch (err) {
-      console.warn('Audio feedback context delayed:', err);
+      console.warn('Audio feedback blocked by browser interaction rules:', err);
     }
   };
 
+  // --- EVENT HANDLERS & VALIDATION ---
   const isSoftLocked = (task: Task): boolean => {
     if (!task.activeSession) return false;
     if (!currentUser) return true;
@@ -409,132 +320,23 @@ export default function WarRoom() {
     if (isSoftLocked(task)) return false;
     if (task.createdBy === currentUser.id) return true;
     if (task.moveStrategy === 'anyone') return true;
-    if (task.moveStrategy === 'custom' && task.permittedMovers.includes(currentUser.id)) return true;
+    if (task.moveStrategy === 'custom' && task.permittedMovers?.includes(currentUser.id)) return true;
     return false;
   };
 
   const canEditTask = (task: Task): boolean => {
     if (!currentUser) return false;
     if (isSoftLocked(task)) return false;
-    if (task.status === 'done' && currentUser.role !== 'admin') return false;
     if (task.createdBy === currentUser.id) return true;
     if (task.editStrategy === 'anyone') return true;
-    if (task.editStrategy === 'custom' && task.permittedEditors.includes(currentUser.id)) return true;
+    if (task.editStrategy === 'custom' && task.permittedEditors?.includes(currentUser.id)) return true;
     return false;
   };
 
-  const toggleHistoryDrawer = (task: Task) => {
-    if (activeHistoryTask && activeHistoryTask.id === task.id) {
-      setActiveHistoryTask(null);
-    } else {
-      setActiveHistoryTask(task);
-    }
-  };
-
-  const executeExportTaskFile = (task: Task) => {
-    if (!currentUser) return;
-    if (task.status === 'done' && currentUser.role !== 'admin') {
-      alert('Access Denied: Production release protocols require Administrator level Clearance keys.');
-      return;
-    }
-
-    let fileOutputString = `==================================================\n`;
-    fileOutputString += `TASK CLOSURE SUMMARY & METADATA LOG REPORT\n`;
-    fileOutputString += `==================================================\n`;
-    fileOutputString += `Task Title: ${task.title}\n`;
-    fileOutputString += `Description: ${task.description || 'N/A'}\n`;
-    fileOutputString += `Created By: ${task.createdByName}\n`;
-    fileOutputString += `Exported By: ${currentUser.name} [ROLE: ${(currentUser.role || 'developer').toUpperCase()}]\n`;
-    fileOutputString += `Export Timestamp: ${new Date().toLocaleString()}\n\n`;
-
-    fileOutputString += `--------------------------------------------------\n`;
-    fileOutputString += `CHECKLIST TARGETS STATUS\n`;
-    fileOutputString += `--------------------------------------------------\n`;
-    if (task.checklist && task.checklist.length > 0) {
-      task.checklist.forEach((item) => {
-        fileOutputString += `[${item.isCompleted ? 'X' : ' '}] ${item.text}`;
-        if (item.updatedByName) {
-          fileOutputString += ` (Verified by ${item.updatedByName} at ${new Date(item.updatedAt || '').toLocaleString()})`;
-        }
-        fileOutputString += `\n`;
-      });
-    } else {
-      fileOutputString += `No checklists were defined for this card.\n`;
-    }
-    fileOutputString += `\n`;
-
-    fileOutputString += `--------------------------------------------------\n`;
-    fileOutputString += `AUDIT TRAIL LOG HISTORY (${task.history?.length || 0} Events)\n`;
-    fileOutputString += `--------------------------------------------------\n`;
-    if (task.history && task.history.length > 0) {
-      task.history.forEach((log, idx) => {
-        fileOutputString += `${idx + 1}. [${new Date(log.timestamp).toLocaleString()}] User: ${log.movedBy}\n`;
-        fileOutputString += `   Action: ${log.actionType || 'Status Change'} (${log.fromStatus} -> ${log.toStatus})\n`;
-        if (log.notes) fileOutputString += `   Notes: ${log.notes}\n`;
-        fileOutputString += `\n`;
-      });
-    } else {
-      fileOutputString += `No historical event logs registered on ledger.\n`;
-    }
-
-    fileOutputString += `==================================================\n`;
-    fileOutputString += `END OF REPORT\n`;
-
-    const blob = new Blob([fileOutputString], { type: 'text/plain;charset=utf-8;' });
-    const downloadUrl = URL.createObjectURL(blob);
-    const downloadAnchor = document.createElement('a');
-    downloadAnchor.href = downloadUrl;
-    downloadAnchor.download = `Task_Logs_${task.title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.txt`;
-    document.body.appendChild(downloadAnchor);
-    downloadAnchor.click();
-    document.body.removeChild(downloadAnchor);
-    URL.revokeObjectURL(downloadUrl);
-
-    setSavedTasks(prev => ({ ...prev, [task.id]: true }));
-  };
-
-  const executeCompleteTaskOnly = async (task: Task) => {
-    if (!currentUser || !savedTasks[task.id]) return;
-    if (task.status === 'done' && currentUser.role !== 'admin') return;
-
-    const supabase = getSupabase();
-    if (!supabase) return;
-
-    const { error } = await supabase
-      .from('tasks')
-      .delete()
-      .eq('id', parseInt(task.id, 10));
-
-    if (error) {
-      console.error('Error purging completed task card:', error);
-    } else {
-      setSavedTasks(prev => {
-        const updated = { ...prev };
-        delete updated[task.id];
-        return updated;
-      });
-    }
-  };
-
-  const selectIdentity = (profile: Profile) => {
-    setCurrentUser(profile);
-    if (typeof window !== 'undefined') localStorage.setItem('warroom_user_profile', JSON.stringify(profile));
-    setTimeout(() => {
-      try { audioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)(); } catch (e) {}
-    }, 100);
-  };
-
-  const logoutIdentity = () => {
-    setCurrentUser(null);
-    if (typeof window !== 'undefined') localStorage.removeItem('warroom_user_profile');
-  };
-
   const handleMouseMove = (e: React.MouseEvent) => {
-    if (!containerRef.current || !currentUser || !interactionChannelRef.current) return;
     const now = Date.now();
-    if (now - lastBroadcast.current < 45) return;
+    if (!containerRef.current || !currentUser || !interactionChannelRef.current || now - lastBroadcast.current < 50) return;
     lastBroadcast.current = now;
-
     const rect = containerRef.current.getBoundingClientRect();
     interactionChannelRef.current.send({
       type: 'broadcast',
@@ -544,7 +346,10 @@ export default function WarRoom() {
         userId: currentUser.id,
         userName: currentUser.name,
         color: currentUser.color,
-        payload: { x: ((e.clientX - rect.left) / rect.width) * 100, y: ((e.clientY - rect.top) / rect.height) * 100 }
+        payload: {
+          x: ((e.clientX - rect.left) / rect.width) * 100,
+          y: ((e.clientY - rect.top) / rect.height) * 100
+        }
       },
     });
   };
@@ -557,20 +362,17 @@ export default function WarRoom() {
     e.dataTransfer.setData('text/plain', task.id);
   };
 
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-  };
-
-  const handleDrop = async (e: React.DragEvent, targetStatus: TaskStatus) => {
-    e.preventDefault();
-    const taskId = e.dataTransfer.getData('text/plain');
-    if (!taskId || !currentUser) return;
-
+  const executeMoveOperation = async (taskId: string, targetStatus: TaskStatus) => {
+    if (!currentUser) return;
     const currentTask = tasks.find((t) => t.id === taskId);
-    if (!currentTask || currentTask.status === targetStatus || !canMoveTask(currentTask)) return;
+    if (!currentTask || currentTask.status === targetStatus) return;
 
-    if ((targetStatus === 'done' || currentTask.status === 'done') && currentUser.role !== 'admin') {
-      alert('Access Matrix Error: Deploying or mutating tasks within the Production Ready terminal column requires elevated Admin configuration credentials.');
+    if (targetStatus === 'done' && currentUser.role === 'guest') {
+      alert('Permission Denied: Guests cannot move tasks into Done.');
+      return;
+    }
+    if (currentTask.status === 'done' && currentUser.role !== 'admin') {
+      alert('Permission Denied: Only Admins can move tasks back out of the Done column.');
       return;
     }
 
@@ -579,15 +381,36 @@ export default function WarRoom() {
 
     const columnTasks = tasks.filter((t) => t.status === targetStatus);
     const newPosition = columnTasks.length > 0 ? Math.max(...columnTasks.map((t) => t.position)) + 1000 : 1000;
-    const updatedHistory: AuditLog = { movedBy: currentUser.name, fromStatus: currentTask.status, toStatus: targetStatus, timestamp: new Date().toISOString(), actionType: 'status_change' };
-    const mergedHistory = [updatedHistory, ...(currentTask.history || [])];
+
+    const moveLog: AuditLog = {
+      movedBy: currentUser.name,
+      fromStatus: currentTask.status,
+      toStatus: targetStatus,
+      timestamp: new Date().toISOString(),
+      actionType: 'status_change',
+      notes: `Task moved from [${currentTask.status}] to [${targetStatus}].`
+    };
+
+    const mergedHistory = [moveLog, ...(currentTask.history || [])];
 
     setTasks((prev) => prev.map((t) => (t.id === taskId ? { ...t, status: targetStatus, position: newPosition, lastMovedBy: currentUser.name, history: mergedHistory } : t)).sort((a, b) => a.position - b.position));
+    setActiveMoveMenuId(null);
 
     await supabase
       .from('tasks')
-      .update({ status: targetStatus, position: newPosition, last_moved_by: currentUser.name, history: mergedHistory })
+      .update({ 
+        status: targetStatus, 
+        position: newPosition, 
+        last_moved_by: currentUser.name, 
+        history: mergedHistory 
+      })
       .eq('id', parseInt(taskId, 10));
+  };
+
+  const handleDrop = (e: React.DragEvent, targetStatus: TaskStatus) => {
+    e.preventDefault();
+    const taskId = e.dataTransfer.getData('text/plain');
+    if (taskId) executeMoveOperation(taskId, targetStatus);
   };
 
   const claimWorkSession = async (task: Task) => {
@@ -595,10 +418,24 @@ export default function WarRoom() {
     const supabase = getSupabase();
     if (!supabase) return;
 
-    const sessionPayload = { userId: currentUser.id, userName: currentUser.name, startedAt: new Date().toISOString(), lastCheckedInAt: new Date().toISOString() };
+    const sessionPayload = {
+      userId: currentUser.id,
+      userName: currentUser.name,
+      startedAt: new Date().toISOString(),
+      lastCheckedInAt: new Date().toISOString()
+    };
+
+    const log: AuditLog = {
+      movedBy: currentUser.name,
+      fromStatus: task.status,
+      toStatus: task.status,
+      timestamp: new Date().toISOString(),
+      notes: `${currentUser.name} started working on this task.`
+    };
+
     await supabase
       .from('tasks')
-      .update({ active_session: sessionPayload })
+      .update({ active_session: sessionPayload, history: [log, ...(task.history || [])] })
       .eq('id', parseInt(task.id, 10));
   };
 
@@ -607,10 +444,14 @@ export default function WarRoom() {
     const supabase = getSupabase();
     if (!supabase) return;
 
-    const sessionPayload = { ...task.activeSession, lastCheckedInAt: new Date().toISOString() };
+    const updatedSession = {
+      ...task.activeSession,
+      lastCheckedInAt: new Date().toISOString()
+    };
+
     await supabase
       .from('tasks')
-      .update({ active_session: sessionPayload })
+      .update({ active_session: updatedSession })
       .eq('id', parseInt(task.id, 10));
   };
 
@@ -624,131 +465,172 @@ export default function WarRoom() {
     const supabase = getSupabase();
     if (!supabase) return;
 
-    const systemLog: AuditLog = { movedBy: currentUser.name, fromStatus: handoffTask.status, toStatus: handoffTask.status, timestamp: new Date().toISOString(), actionType: 'session_handover', notes: handoffNotes.trim() ? handoffNotes.trim() : 'Session explicitly released without incremental notes.' };
+    const systemLog: AuditLog = {
+      movedBy: currentUser.name,
+      fromStatus: handoffTask.status,
+      toStatus: handoffTask.status,
+      timestamp: new Date().toISOString(),
+      actionType: 'session_handover',
+      notes: handoffNotes.trim() ? handoffNotes.trim() : 'Session released.'
+    };
+
     await supabase
       .from('tasks')
       .update({ active_session: null, history: [systemLog, ...(handoffTask.history || [])] })
       .eq('id', parseInt(handoffTask.id, 10));
+
     setHandoffTask(null);
   };
 
   const toggleChecklistItem = async (task: Task, itemId: string) => {
     if (!currentUser || isSoftLocked(task)) return;
-    if (task.status === 'done' && currentUser.role !== 'admin') return;
 
-    const supabase = getSupabase();
-    if (!supabase) return;
-
-    let checklistItemName = '';
-    let targetCompletionState = false;
-
-    const updatedChecklist = task.checklist.map(item => {
+    const updatedChecklist = task.checklist.map((item) => {
       if (item.id === itemId) {
-        targetCompletionState = !item.isCompleted;
-        checklistItemName = item.text;
-        return { ...item, isCompleted: targetCompletionState, updatedBy: currentUser.id, updatedByName: currentUser.name, updatedAt: new Date().toISOString() };
+        return {
+          ...item,
+          isCompleted: !item.isCompleted,
+          updatedBy: currentUser.id,
+          updatedByName: currentUser.name,
+          updatedAt: new Date().toISOString()
+        };
       }
       return item;
     });
 
-    const trackingLogEntry: AuditLog = { movedBy: currentUser.name, fromStatus: task.status, toStatus: task.status, timestamp: new Date().toISOString(), actionType: 'checklist_toggle', checklistText: checklistItemName, notes: `${targetCompletionState ? 'Marked complete' : 'Reverted to incomplete'}: "${checklistItemName}"` };
-    const combinedHistory = [trackingLogEntry, ...(task.history || [])];
+    const supabase = getSupabase();
+    if (!supabase) return;
 
     await supabase
       .from('tasks')
-      .update({ checklist: updatedChecklist, history: combinedHistory })
+      .update({ checklist: updatedChecklist })
       .eq('id', parseInt(task.id, 10));
   };
 
-  const addCreationChecklistItem = () => {
-    if (!creationChecklistInput.trim()) return;
-    const item: ChecklistItem = { id: Math.random().toString(36).substring(2, 9), text: creationChecklistInput.trim(), isCompleted: false };
-    setNewChecklist([...newChecklist, item]);
-    setCreationChecklistInput('');
-  };
-
-  const removeCreationChecklistItem = (id: string) => {
-    setNewChecklist(newChecklist.filter(item => item.id !== id));
-  };
-
-  const addModificationChecklistItem = () => {
-    if (!newChecklistItemText.trim()) return;
-    const item: ChecklistItem = { id: Math.random().toString(36).substring(2, 9), text: newChecklistItemText.trim(), isCompleted: false };
-    setEditChecklist([...editChecklist, item]);
-    setNewChecklistItemText('');
-  };
-
-  const removeModificationChecklistItem = (id: string) => {
-    setEditChecklist(editChecklist.filter(item => item.id !== id));
-  };
-
-  const McKTask = (strategy: AccessStrategy) => strategy;
-
   const saveNewTask = async () => {
     if (!newTitle.trim() || !currentUser) return;
-    if (addTaskStatus === 'done' && currentUser.role !== 'admin') {
-      alert('Access Matrix Error: Inserting assets directly into Production Ready column requires Admin access.');
-      return;
-    }
-
     const supabase = getSupabase();
     if (!supabase) return;
 
     const columnTasks = tasks.filter((t) => t.status === addTaskStatus);
     const position = columnTasks.length > 0 ? Math.max(...columnTasks.map((t) => t.position)) + 1000 : 1000;
 
-    const { error } = await supabase.from('tasks').insert([{ title: newTitle, description: newDesc, status: addTaskStatus, position, created_by: currentUser.id, created_by_name: currentUser.name, edit_strategy: newEditStrategy, move_strategy: newMoveStrategy, permitted_editors: newPermittedEditors, permitted_movers: newPermittedMovers, checklist: newChecklist, history: [] }]);
-    if (error) console.error('Card insertion block dropped:', error);
+    await supabase.from('tasks').insert([{
+      title: newTitle,
+      description: newDesc,
+      status: addTaskStatus,
+      position,
+      created_by: currentUser.id,
+      created_by_name: currentUser.name,
+      edit_strategy: newEditStrategy,
+      move_strategy: newMoveStrategy,
+      permitted_editors: newEditStrategy === 'custom' ? newPermittedEditors : [],
+      permitted_movers: newMoveStrategy === 'custom' ? newPermittedMovers : [],
+      checklist: newChecklist,
+      history: []
+    }]);
+
     setIsAddingTask(false);
   };
 
   const saveEditedTask = async () => {
     if (!editingTask || !currentUser) return;
-    if (editingTask.status === 'done' && currentUser.role !== 'admin') return;
-
     const supabase = getSupabase();
     if (!supabase) return;
 
     await supabase
       .from('tasks')
-      .update({ title: editTitle, description: editDesc, edit_strategy: editEditStrategy, move_strategy: editMoveStrategy, permitted_editors: editPermittedEditors, permitted_movers: editPermittedMovers, checklist: editChecklist })
+      .update({
+        title: editTitle,
+        description: editDesc,
+        edit_strategy: editEditStrategy,
+        move_strategy: editMoveStrategy,
+        permitted_editors: editEditStrategy === 'custom' ? editPermittedEditors : [],
+        permitted_movers: editMoveStrategy === 'custom' ? editPermittedMovers : [],
+        checklist: editChecklist
+      })
       .eq('id', parseInt(editingTask.id, 10));
+
     setEditingTask(null);
   };
 
-  const formatTimerDuration = (startedAtStr: string): string => {
-    const elapsed = timeTicker - new Date(startedAtStr).getTime();
-    if (elapsed <= 0) return '00:00';
-    const totalSecs = Math.floor(elapsed / 1000);
-    const m = Math.floor(totalSecs / 60).toString().padStart(2, '0');
-    const s = (totalSecs % 60).toString().padStart(2, '0');
-    return `${m}:${s}`;
+  const executeExportTaskFile = (task: Task) => {
+    if (!currentUser || currentUser.role !== 'admin') return;
+
+    let fileOutputString = `==================================================\n`;
+    fileOutputString += `TASK ACTION LOG REPORT: ${task.title}\n`;
+    fileOutputString += `==================================================\n`;
+    task.history.forEach((log, idx) => {
+      fileOutputString += `[${log.timestamp}] User: ${log.movedBy} | Action: ${log.actionType || 'Log'}\nNotes: ${log.notes || 'None'}\n\n`;
+    });
+
+    const blob = new Blob([fileOutputString], { type: 'text/plain;charset=utf-8;' });
+    const downloadUrl = URL.createObjectURL(blob);
+    const downloadAnchor = document.createElement('a');
+    downloadAnchor.href = downloadUrl;
+    downloadAnchor.download = `Log_Export_${task.id}.txt`;
+    document.body.appendChild(downloadAnchor);
+    downloadAnchor.click();
+    document.body.removeChild(downloadAnchor);
+    setSavedTasks(prev => ({ ...prev, [task.id]: true }));
   };
 
-  const getRemainingTimeInSeconds = (lastPingStr: string): number => {
-    const expiresAt = new Date(lastPingStr).getTime() + 60000;
-    const diff = expiresAt - timeTicker;
+  const executeCompleteTaskOnly = async (task: Task) => {
+    if (!currentUser || !savedTasks[task.id]) return;
+    const supabase = getSupabase();
+    if (!supabase) return;
+
+    const { error } = await supabase.from('tasks').delete().eq('id', parseInt(task.id, 10));
+    if (!error) {
+      setSavedTasks(prev => {
+        const updated = { ...prev };
+        delete updated[task.id];
+        return updated;
+      });
+    }
+  };
+
+  const toggleSelectionUser = (userId: string, target: 'new-edit' | 'new-move' | 'edit-edit' | 'edit-move') => {
+    if (target === 'new-edit') {
+      setNewPermittedEditors(p => p.includes(userId) ? p.filter(id => id !== userId) : [...p, userId]);
+    } else if (target === 'new-move') {
+      setNewPermittedMovers(p => p.includes(userId) ? p.filter(id => id !== userId) : [...p, userId]);
+    } else if (target === 'edit-edit') {
+      setEditPermittedEditors(p => p.includes(userId) ? p.filter(id => id !== userId) : [...p, userId]);
+    } else if (target === 'edit-move') {
+      setEditPermittedMovers(p => p.includes(userId) ? p.filter(id => id !== userId) : [...p, userId]);
+    }
+  };
+
+  const handleSelectUserIdentity = (user: Profile) => {
+    setCurrentUser(user);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('warroom_user_profile', JSON.stringify(user));
+    }
+  };
+
+  const getRemainingTimeSeconds = (lastPingStr: string): number => {
+    const diff = (new Date(lastPingStr).getTime() + 60000) - timeTicker;
     return diff <= 0 ? 0 : Math.ceil(diff / 1000);
   };
 
-  if (!mounted) {
-    return <div className="w-screen h-screen bg-zinc-950 flex items-center justify-center font-mono text-xs text-zinc-600">BOOTING VIRTUAL ROOM ENVIRONMENT...</div>;
-  }
-
+  // --- UI RENDERING & COMPONENT LAYER ---
+  
+  // Clean restored Fallback Selector view to prevent any blank screen instances
   if (!currentUser) {
     return (
-      <div className="w-screen h-screen bg-zinc-950 flex items-center justify-center p-4">
-        <div className="w-full max-w-md bg-zinc-900 border border-zinc-800 rounded-lg p-8 text-center">
-          <h2 className="text-sm font-bold tracking-tight text-white mb-2 uppercase">Select Workspace Identity</h2>
-          <p className="text-xs text-zinc-400 mb-6 leading-relaxed">Choose an identity to run granular access tests across simultaneous browser panels.</p>
-          <div className="space-y-3">
+      <div className="w-screen h-screen bg-zinc-950 flex items-center justify-center p-4 font-mono">
+        <div className="w-full max-w-sm bg-zinc-910 border border-zinc-800 rounded-xl p-6 text-center shadow-2xl">
+          <h2 className="text-white text-sm font-bold uppercase tracking-wider mb-2">Select User Account Identity</h2>
+          <p className="text-zinc-500 text-[11px] mb-5">Choose a testing operator role card profile to access the workspace board metrics.</p>
+          <div className="space-y-2">
             {TEST_USERS.map((user) => (
-              <button key={user.id} onClick={() => selectIdentity(user)} className="w-full flex items-center justify-between p-4 bg-zinc-950/60 border border-zinc-800 hover:border-zinc-700 rounded-lg text-left cursor-pointer transition-colors" >
+              <button key={user.id} onClick={() => handleSelectUserIdentity(user)} className="w-full text-left px-4 py-3 bg-zinc-900 border border-zinc-800 rounded-lg hover:border-zinc-700 hover:bg-zinc-800/80 transition-all flex items-center justify-between text-xs cursor-pointer group">
                 <div>
-                  <div className="text-xs font-mono font-bold text-zinc-200">{user.name}</div>
-                  <div className="text-[10px] text-zinc-500 mt-0.5">{user.badge} ({user.role.toUpperCase()})</div>
+                  <span className="font-bold text-zinc-200 group-hover:text-white">{user.name}</span>
+                  <div className="text-[10px] text-zinc-500 capitalize">{user.role} Profile Strategy</div>
                 </div>
-                <span className="w-3 h-3 rounded-full" style={{ backgroundColor: user.color }} />
+                <span className="text-[9px] px-2 py-0.5 rounded font-bold border" style={{ borderColor: `${user.color}30`, backgroundColor: `${user.color}10`, color: user.color }}>{user.badge}</span>
               </button>
             ))}
           </div>
@@ -758,382 +640,346 @@ export default function WarRoom() {
   }
 
   return (
-    <div ref={containerRef} onMouseMove={handleMouseMove} className="w-screen h-screen bg-zinc-950 text-zinc-100 p-8 select-none overflow-hidden font-sans relative">
+    <div ref={containerRef} onMouseMove={handleMouseMove} className="w-screen h-screen bg-zinc-950 text-zinc-100 p-4 md:p-6 lg:p-8 overflow-hidden font-sans relative flex flex-col">
       
-      {/* --- RENDER OTHER USER CURSORS --- */}
-      {Object.values(presences).map((p) => {
-        if (p.id === currentUser.id) return null;
-        return (
-          <div key={p.id} className="absolute pointer-events-none z-50 transition-all duration-75 ease-out" style={{ left: `${p.x}%`, top: `${p.y}%` }}>
-            <svg width="12" height="12" viewBox="0 0 32 32" style={{ fill: p.color }}>
-              <path d="M0,0 L0,28 L8,20 L18,30 L22,26 L12,16 L22,16 Z" />
-            </svg>
-            <div className="absolute left-3 top-3 px-1.5 py-0.5 rounded text-[8px] font-mono font-bold text-white whitespace-nowrap shadow-md" style={{ backgroundColor: p.color }}>
-              {p.name}
-            </div>
-          </div>
-        );
-      })}
-
-      <header className="flex items-center justify-between mb-8 border-b border-zinc-900 pb-5">
+      <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-4 border-b border-zinc-900 pb-4 gap-4 shrink-0">
         <div>
-          <div className="flex items-center gap-3">
-            <h1 className="text-md font-black tracking-wider text-white uppercase">War Room</h1>
-            <span className="text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded-full font-mono font-bold uppercase tracking-widest">ROLE PROTECTED ARCHITECTURE</span>
+          <div className="flex items-center gap-2">
+            <h1 className="text-sm font-black tracking-wider text-white uppercase">Workspace Dashboard</h1>
+            <span className="text-[9px] bg-blue-500/10 text-blue-400 border border-blue-500/20 px-2 py-0.5 rounded-full font-mono font-bold">V1.0.8</span>
           </div>
-          <p className="text-xs text-zinc-500 mt-1">Real-time team configuration desk and task priority manager.</p>
+          <p className="text-[11px] text-zinc-500 font-mono mt-0.5">Logged in as: <span className="text-zinc-300 font-bold">{currentUser.name} ({currentUser.role.toUpperCase()})</span></p>
         </div>
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-3 px-4 py-2 bg-zinc-900 border border-zinc-800 rounded-lg">
-            <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: currentUser.color }} />
-            <div>
-              <div className="text-xs font-mono font-bold text-zinc-300">{currentUser.name}</div>
-              <div className="text-[9px] font-mono text-zinc-500 uppercase tracking-widest">
-                {currentUser.badge} • {(currentUser.role || 'developer').toUpperCase()}
-              </div>
-            </div>
-          </div>
-          <button onClick={logoutIdentity} className="text-[10px] font-mono font-bold text-zinc-400 hover:text-white uppercase tracking-wider border border-zinc-800 px-3 py-2.5 rounded-lg bg-zinc-900/50 hover:bg-zinc-900 cursor-pointer">Exit Environment</button>
-        </div>
+        <button onClick={() => setCurrentUser(null)} className="px-3 py-1.5 bg-zinc-900 border border-zinc-800 text-zinc-400 font-mono text-[10px] hover:text-white rounded self-start sm:self-auto cursor-pointer">Switch Account</button>
       </header>
 
-      <div className="grid grid-cols-3 gap-6 h-[calc(100vh-180px)] overflow-hidden">
+      {/* Mobile Column Navigation bar tabs */}
+      <div className="flex sm:hidden bg-zinc-900 p-1 border border-zinc-800 rounded-lg mb-4 shrink-0 font-mono text-[10px]">
+        {COLUMNS.map(c => (
+          <button key={c.id} onClick={() => setActiveMobileTab(c.id)} className={`flex-1 py-1.5 rounded uppercase font-bold text-center ${activeMobileTab === c.id ? 'bg-zinc-800 text-white' : 'text-zinc-500'}`}>
+            {c.title}
+          </button>
+        ))}
+      </div>
+
+      {/* Primary Kanban Columns Grid layout */}
+      <div className="flex-1 grid grid-cols-1 sm:grid-cols-3 gap-4 md:gap-6 overflow-hidden h-full">
         {COLUMNS.map((col) => {
           const filteredTasks = tasks.filter((t) => t.status === col.id);
           return (
-            <div key={col.id} onDragOver={handleDragOver} onDrop={(e) => handleDrop(e, col.id)} className={`bg-zinc-900/40 border ${col.border} rounded-xl p-4 flex flex-col h-full min-h-[300px]`}>
-              <div className="flex items-center justify-between mb-4 pb-2 border-b border-zinc-900/60 shrink-0">
+            <div key={col.id} onDragOver={(e) => e.preventDefault()} onDrop={(e) => handleDrop(e, col.id)} className={`bg-zinc-900/30 border ${col.border} rounded-xl p-4 flex flex-col h-full overflow-hidden ${activeMobileTab === col.id ? 'flex' : 'hidden sm:flex'}`}>
+              
+              <div className="flex items-center justify-between mb-4 pb-2 border-b border-zinc-900/50 shrink-0">
                 <div className="flex items-center gap-2">
                   <span className={`w-1.5 h-3 ${col.accent} rounded-sm`} />
-                  <h3 className="text-xs font-bold font-mono tracking-wider text-zinc-300 uppercase">{col.title} ({filteredTasks.length})</h3>
+                  <h3 className="text-[11px] font-bold font-mono tracking-wider text-zinc-400 uppercase">{col.title} ({filteredTasks.length})</h3>
                 </div>
-                <button onClick={() => {
-                  setAddTaskStatus(col.id);
-                  setIsAddingTask(true);
-                  setNewTitle('');
-                  setNewDesc('');
-                  setNewEditStrategy('anyone');
-                  setNewMoveStrategy('anyone');
-                  setNewPermittedEditors([]);
-                  setNewPermittedMovers([]);
-                  setNewChecklist([]);
-                  setCreationChecklistInput('');
-                }} className="px-4 py-2 bg-zinc-900 hover:bg-zinc-800 text-white hover:text-emerald-400 rounded-lg border border-zinc-800 hover:border-emerald-500/40 text-xs font-mono font-black uppercase tracking-widest shadow-lg cursor-pointer transition-all duration-150 transform active:scale-95" >
-                  + Add Task
+                <button onClick={() => { setAddTaskStatus(col.id); setIsAddingTask(true); setNewTitle(''); setNewDesc(''); setNewEditStrategy('anyone'); setNewMoveStrategy('anyone'); setNewPermittedEditors([]); setNewPermittedMovers([]); setNewChecklist([]); setCreationChecklistInput(''); }} className="px-2 py-1 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-white font-mono text-[10px] uppercase rounded cursor-pointer">
+                  Add Task
                 </button>
               </div>
 
-              <div className="flex-1 overflow-y-auto space-y-4 pr-1 custom-scrollbar">
-                {filteredTasks.map((task) => {
-                  const moveOk = canMoveTask(task);
-                  const editOk = canEditTask(task);
-                  const softLocked = isSoftLocked(task);
-                  const strategyTheme = STRATEGY_THEMES[task.editStrategy] || STRATEGY_THEMES.anyone;
+              <div className="flex-1 overflow-y-auto space-y-3 pr-1 minimal-scrollbar">
+                {filteredTasks.length === 0 ? (
+                  <div className="border border-dashed border-zinc-800/50 rounded-lg py-8 text-center text-zinc-600 font-mono text-[10px]">No tasks inside this column</div>
+                ) : (
+                  filteredTasks.map((task) => {
+                    const softLocked = isSoftLocked(task);
+                    const moveAllowed = canMoveTask(task);
+                    const editAllowed = canEditTask(task);
+                    const isWorker = task.activeSession?.userId === currentUser.id;
+                    const strategy = STRATEGY_THEMES[task.editStrategy] || STRATEGY_THEMES.anyone;
+                    const remSeconds = task.activeSession ? getRemainingTimeSeconds(task.activeSession.lastCheckedInAt) : 60;
 
-                  return (
-                    <div key={task.id} draggable={moveOk} onDragStart={(e) => handleDragStart(e, task)} className={`bg-zinc-900 border border-zinc-800/80 rounded-lg p-4 relative transition-all duration-150 ${moveOk ? 'cursor-grab active:cursor-grabbing hover:border-zinc-700' : 'opacity-80 cursor-not-allowed'} ${strategyTheme.bgCard}`}>
-                      {task.activeSession && (
-                        <div className="absolute top-0 right-0 left-0 h-1 bg-gradient-to-r from-amber-500 to-orange-600 animate-pulse rounded-t-lg" />
-                      )}
+                    return (
+                      <div key={task.id} draggable={moveAllowed && !softLocked} onDragStart={(e) => handleDragStart(e, task)} className={`bg-zinc-900 border ${softLocked ? 'border-rose-900/40 opacity-70' : task.activeSession ? 'border-amber-500/50 shadow-lg shadow-amber-500/5' : 'border-zinc-800'} rounded-lg p-3 relative ${strategy.bgCard}`}>
+                        
+                        {softLocked && (
+                          <div className="absolute top-2 right-2 text-[9px] font-mono text-rose-400 bg-rose-950/40 border border-rose-900/50 px-1.5 py-0.5 rounded uppercase font-bold animate-pulse">Locked by {task.activeSession?.userName}</div>
+                        )}
 
-                      <div className="flex items-start justify-between gap-2 mb-2">
-                        <h4 className="text-xs font-bold text-zinc-100 tracking-tight line-clamp-1">{task.title}</h4>
-                        <div className="flex items-center gap-1 shrink-0">
-                          <button onClick={() => toggleHistoryDrawer(task)} className="p-1 bg-zinc-950 hover:bg-zinc-800 border border-zinc-800 rounded text-[9px] font-mono font-bold text-zinc-400 uppercase tracking-tight cursor-pointer">Logs</button>
-                          {editOk && (
-                            <button onClick={() => {
-                              setEditingTask(task);
-                              setEditTitle(task.title);
-                              setEditDesc(task.description || '');
-                              setEditEditStrategy(task.editStrategy);
-                              setEditMoveStrategy(task.moveStrategy);
-                              setEditPermittedEditors(task.permittedEditors || []);
-                              setEditPermittedMovers(task.permittedMovers || []);
-                              setEditChecklist(task.checklist || []);
-                              setNewChecklistItemText('');
-                            }} className="p-1 bg-zinc-950 hover:bg-zinc-800 border border-zinc-800 rounded text-[9px] font-mono font-bold text-zinc-400 uppercase tracking-tight cursor-pointer" >
-                              Edit
-                            </button>
-                          )}
+                        <div className="text-[9px] font-mono text-zinc-500 mb-1 flex justify-between">
+                          <span>Created by: {task.createdByName}</span>
+                          <span className={`uppercase font-bold text-[8px] px-1 bg-zinc-950 rounded ${strategy.text}`}>{task.editStrategy}</span>
                         </div>
-                      </div>
 
-                      <p className="text-[11px] text-zinc-400 leading-relaxed mb-3 line-clamp-2">{task.description || 'No supplementary manifest descriptive summary declared.'}</p>
+                        <h4 className="text-xs font-bold text-zinc-100 uppercase tracking-tight truncate">{task.title}</h4>
+                        {task.description && <p className="text-[11px] text-zinc-400 line-clamp-2 mt-1 leading-normal">{task.description}</p>}
 
-                      {task.checklist && task.checklist.length > 0 && (
-                        <div className="bg-zinc-950/40 border border-zinc-900/60 rounded-md p-2 mb-3 space-y-1">
-                          {task.checklist.map((item) => (
-                            <div key={item.id} className="flex items-center justify-between text-[10px]">
-                              <button onClick={() => toggleChecklistItem(task, item.id)} disabled={softLocked || (task.status === 'done' && currentUser.role !== 'admin')} className="flex items-center gap-1.5 text-left text-zinc-400 hover:text-zinc-200 transition-colors disabled:cursor-not-allowed" >
-                                <span className={`w-3 h-3 flex items-center justify-center border font-mono rounded-sm text-[8px] font-bold ${item.isCompleted ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400' : 'border-zinc-700 bg-zinc-900'}`}>
-                                  {item.isCompleted ? '✓' : ''}
-                                </span>
-                                <span className={item.isCompleted ? 'line-through text-zinc-600' : ''}>{item.text}</span>
+                        {/* Interactive Real-Time Activity Tracking module component */}
+                        {task.activeSession && (
+                          <div className="mt-3 p-2 bg-zinc-950/60 border border-zinc-800/80 rounded font-mono text-[10px] flex items-center justify-between">
+                            <span className="text-amber-400 font-bold truncate max-w-[90px]">Active: {task.activeSession.userName}</span>
+                            <div className="flex items-center gap-2 shrink-0">
+                              <span className={remSeconds <= 20 ? 'text-rose-500 font-black animate-pulse' : 'text-zinc-400'}>Time left: {remSeconds}s</span>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Interactive Task Checklist component sub-list */}
+                        {task.checklist && task.checklist.length > 0 && (
+                          <div className="mt-3 space-y-1 bg-zinc-950/30 p-1.5 rounded border border-zinc-900">
+                            {task.checklist.map(item => (
+                              <button key={item.id} onClick={() => toggleChecklistItem(task, item.id)} disabled={softLocked} className="w-full flex items-center gap-2 text-left text-[10px] font-mono text-zinc-400 hover:text-zinc-200">
+                                <span className={`w-2.5 h-2.5 border rounded-sm flex items-center justify-center text-[7px] font-black ${item.isCompleted ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400' : 'border-zinc-800 bg-zinc-900'}`}>{item.isCompleted ? '✓' : ''}</span>
+                                <span className={`truncate ${item.isCompleted ? 'line-through text-zinc-600' : ''}`}>{item.text}</span>
                               </button>
-                              {item.updatedByName && (
-                                <span className="text-[8px] text-zinc-500 italic">By {item.updatedByName}</span>
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                      )}
+                            ))}
+                          </div>
+                        )}
 
-                      {/* --- CLAIM & PING INTERACTION FOOTER --- */}
-                      <div className="flex items-center justify-between border-t border-zinc-900/80 pt-2.5 mt-2.5 text-[9px] font-mono">
-                        <div className="text-zinc-500">
-                          By <span className="text-zinc-400 font-bold">{task.createdByName}</span>
+                        {/* Action buttons footer layout menu */}
+                        <div className="mt-3 pt-2 border-t border-zinc-950 flex items-center justify-between gap-2 font-mono text-[10px]">
+                          <div className="flex items-center gap-1">
+                            {!task.activeSession ? (
+                              <button onClick={() => claimWorkSession(task)} className="px-2 py-0.5 bg-zinc-950 hover:bg-zinc-800 text-amber-500 border border-zinc-800 rounded text-[9px] uppercase font-bold cursor-pointer">Claim Task</button>
+                            ) : isWorker ? (
+                              <>
+                                <button onClick={() => pingCheckIn(task)} className="px-2 py-0.5 bg-emerald-950 text-emerald-400 border border-emerald-900/60 rounded text-[9px] font-black uppercase cursor-pointer animate-pulse">Ping Timer</button>
+                                <button onClick={() => startReleaseHandoff(task)} className="px-2 py-0.5 bg-zinc-800 text-zinc-300 border border-zinc-700 rounded text-[9px] uppercase cursor-pointer">Release Task</button>
+                              </>
+                            ) : null}
+
+                            {editAllowed && !softLocked && (
+                              <button onClick={() => { setEditingTask(task); setEditTitle(task.title); setEditDesc(task.description || ''); setEditEditStrategy(task.editStrategy); setEditMoveStrategy(task.moveStrategy); setEditPermittedEditors(task.permittedEditors || []); setEditPermittedMovers(task.permittedMovers || []); setEditChecklist(task.checklist || []); setNewChecklistItemText(''); }} className="px-1.5 py-0.5 bg-zinc-900 text-zinc-400 hover:text-white border border-zinc-800 rounded text-[9px] uppercase cursor-pointer">Edit</button>
+                            )}
+                          </div>
+
+                          <div className="flex items-center gap-1">
+                            {/* Device-agnostic manual moving control fallback button menu */}
+                            {moveAllowed && !softLocked && (
+                              <div className="relative">
+                                <button onClick={() => setActiveMoveMenuId(activeMoveMenuId === task.id ? null : task.id)} className="px-1.5 py-0.5 bg-zinc-950 border border-zinc-800 text-zinc-300 rounded text-[9px] font-bold cursor-pointer uppercase">Move Column</button>
+                                {activeMoveMenuId === task.id && (
+                                  <div className="absolute right-0 bottom-full mb-1 w-28 bg-zinc-900 border border-zinc-800 rounded shadow-xl z-50 py-1 text-[9px]">
+                                    {COLUMNS.map(c => (
+                                      <button key={c.id} disabled={task.status === c.id} onClick={() => executeMoveOperation(task.id, c.id)} className={`w-full px-2 py-1 text-left uppercase font-bold ${task.status === c.id ? 'text-zinc-600 bg-zinc-950/40 cursor-not-allowed' : 'text-zinc-300 hover:bg-zinc-800'}`}>to {c.id === 'todo' ? 'To Do' : c.id === 'in-progress' ? 'In Progress' : 'Done'}</button>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+
+                            {/* Permission-walled historic auditing and archiving block controls */}
+                            {currentUser.role === 'admin' && (
+                              <div className="flex items-center gap-1 bg-zinc-950/40 p-0.5 border border-zinc-800 rounded">
+                                <button onClick={() => setActiveHistoryTask(task)} className="px-1 py-0.5 bg-zinc-900 hover:bg-zinc-800 rounded text-[9px] text-zinc-400 hover:text-white cursor-pointer">View Logs</button>
+                                <button onClick={() => executeExportTaskFile(task)} className="px-1 py-0.5 bg-zinc-900 hover:bg-zinc-800 rounded text-[9px] text-zinc-400 hover:text-white cursor-pointer">Save File</button>
+                                {savedTasks[task.id] && task.status === 'done' && (
+                                  <button onClick={() => executeCompleteTaskOnly(task)} className="px-1 py-0.5 bg-emerald-950 text-emerald-400 hover:bg-emerald-900 rounded text-[9px] font-bold cursor-pointer">Delete Task</button>
+                                )}
+                              </div>
+                            )}
+                          </div>
                         </div>
 
-                        <div className="flex items-center gap-1.5">
-                          {task.activeSession ? (
-                            <div className="flex items-center gap-1.5 bg-amber-500/10 text-amber-400 px-1.5 py-0.5 rounded border border-amber-500/20">
-                              <span className="w-1 h-1 bg-amber-400 rounded-full animate-ping" />
-                              <span className="font-bold">{task.activeSession.userName}</span>
-                              <span className="text-zinc-500">({formatTimerDuration(task.activeSession.startedAt)})</span>
-                              
-                              {task.activeSession.userId === currentUser.id ? (
-                                <button 
-                                  onClick={(e) => { e.stopPropagation(); pingCheckIn(task); }}
-                                  className="ml-1.5 px-1 py-0.5 bg-amber-500 hover:bg-amber-400 text-zinc-950 font-black rounded uppercase text-[8px] transition-colors cursor-pointer"
-                                >
-                                  Ping ({getRemainingTimeInSeconds(task.activeSession.lastCheckedInAt)}s)
-                                </button>
-                              ) : (
-                                <span className="text-[7px] text-rose-400 px-1 bg-rose-500/10 rounded border border-rose-500/20 uppercase font-black ml-1">LOCKED</span>
-                              )}
-                            </div>
-                          ) : (
-                            <button
-                              onClick={(e) => { e.stopPropagation(); claimWorkSession(task); }}
-                              className="px-2 py-0.5 bg-zinc-950 hover:bg-zinc-800 border border-zinc-800 hover:border-zinc-700 text-zinc-300 hover:text-white rounded text-[8px] font-bold uppercase transition-colors cursor-pointer"
-                            >
-                              Claim
-                            </button>
-                          )}
-
-                          {task.activeSession && task.activeSession.userId === currentUser.id && (
-                            <button
-                              onClick={(e) => { e.stopPropagation(); startReleaseHandoff(task); }}
-                              className="px-1 py-0.5 bg-zinc-950 hover:bg-rose-950 border border-zinc-800 hover:border-rose-900 text-zinc-400 hover:text-rose-400 rounded text-[8px] transition-colors cursor-pointer"
-                              title="Release Task Session Lock"
-                            >
-                              ✕
-                            </button>
-                          )}
-                        </div>
                       </div>
-
-                    </div>
-                  );
-                })}
+                    );
+                  })
+                )}
               </div>
             </div>
           );
         })}
       </div>
 
-      {/* --- SIDEBAR LEDGER AUDIT TRAIL VIEW --- */}
-      {activeHistoryTask && (
-        <div className="absolute top-0 right-0 w-96 h-full bg-zinc-900 border-l border-zinc-800 shadow-2xl z-50 flex flex-col font-mono animate-slide-in select-text">
-          <div className="p-4 border-b border-zinc-800 flex items-center justify-between bg-zinc-950/40">
-            <div>
-              <h3 className="text-xs font-black text-white uppercase tracking-wider">Ledger Audit Trail</h3>
-              <p className="text-[10px] text-zinc-500 truncate max-w-[240px] mt-0.5">{activeHistoryTask.title}</p>
-            </div>
-            <button 
-              onClick={() => setActiveHistoryTask(null)}
-              className="text-zinc-400 hover:text-white border border-zinc-800 hover:border-zinc-700 bg-zinc-950 px-2 py-1 rounded cursor-pointer uppercase text-[9px] font-bold"
-            >
-              Close
-            </button>
-          </div>
-
-          <div className="p-4 bg-zinc-950/20 border-b border-zinc-800/60 flex items-center justify-between gap-2 shrink-0">
-            <span className="text-[10px] text-zinc-400">Export Ledger Baseline Archive:</span>
-            <button
-              onClick={() => executeExportTaskFile(activeHistoryTask)}
-              className="px-2 py-1 bg-rose-600/10 hover:bg-rose-600 text-rose-400 hover:text-white border border-rose-500/20 rounded font-bold uppercase text-[9px] tracking-wider transition-colors cursor-pointer"
-            >
-              Download .TXT
-            </button>
-          </div>
-
-          <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar">
-            {activeHistoryTask.history && activeHistoryTask.history.length > 0 ? (
-              activeHistoryTask.history.map((log, index) => {
-                let badgeColor = 'bg-blue-500/10 text-blue-400 border-blue-500/20';
-                if (log.actionType === 'timeout_recovery') badgeColor = 'bg-rose-500/10 text-rose-400 border-rose-500/20';
-                if (log.actionType === 'session_handover') badgeColor = 'bg-amber-500/10 text-amber-400 border-amber-500/20';
-                if (log.actionType === 'checklist_toggle') badgeColor = 'bg-purple-500/10 text-purple-400 border-purple-500/20';
-
-                return (
-                  <div key={index} className="p-3 bg-zinc-950/50 border border-zinc-800/60 rounded-md text-[10px]">
-                    <div className="flex items-center justify-between mb-1.5 gap-2">
-                      <span className="text-zinc-300 font-bold truncate">{log.movedBy}</span>
-                      <span className="text-[8px] text-zinc-500 shrink-0">{new Date(log.timestamp).toLocaleTimeString()}</span>
-                    </div>
-                    
-                    <div className="flex items-center gap-1.5 my-1">
-                      <span className={`text-[8px] border px-1 rounded uppercase font-bold tracking-tight ${badgeColor}`}>
-                        {log.actionType ? log.actionType.replace('_', ' ') : 'Status Move'}
-                      </span>
-                      <span className="text-zinc-500">
-                        {log.fromStatus === log.toStatus ? `on ${log.fromStatus}` : `${log.fromStatus} ➔ ${log.toStatus}`}
-                      </span>
-                    </div>
-
-                    {log.notes && (
-                      <p className="text-[10px] text-zinc-400 mt-2 bg-zinc-950 border border-zinc-900 p-1.5 rounded leading-normal break-words">
-                        {log.notes}
-                      </p>
-                    )}
-                  </div>
-                );
-              })
-            ) : (
-              <div className="h-full flex flex-col items-center justify-center text-zinc-600 text-center p-8">
-                <div className="mb-2">⚠️</div>
-                <div className="text-[10px] uppercase tracking-wider font-bold">No Records Found</div>
-                <div className="text-[9px] text-zinc-600 mt-1">Ledger sequence state is pristine.</div>
-              </div>
-            )}
-          </div>
-
-          {savedTasks[activeHistoryTask.id] && (
-            <div className="p-4 border-t border-zinc-800 bg-emerald-950/20 shrink-0">
-              <button
-                onClick={() => executeCompleteTaskOnly(activeHistoryTask)}
-                className="w-full py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold uppercase text-xs rounded tracking-widest transition-colors cursor-pointer"
-              >
-                Purge & Commit Done Ledger
-              </button>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* --- ADD TASK MODAL PANEL --- */}
+      {/* --- ADD TASK ACTION MODAL LAYOUT --- */}
       {isAddingTask && (
-        <div className="fixed inset-0 bg-zinc-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="w-full max-w-xl bg-zinc-900 border border-zinc-800 rounded-xl p-6 font-mono text-xs">
-            <h3 className="text-sm font-bold text-white uppercase mb-4 tracking-wider">Initialize Operational Node Task</h3>
-            
-            <div className="space-y-4">
+        <div className="fixed inset-0 bg-zinc-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 font-mono">
+          <div className="w-full max-w-lg bg-zinc-900 border border-zinc-800 rounded-xl p-5 shadow-2xl max-h-[85vh] overflow-y-auto minimal-scrollbar">
+            <h3 className="text-xs font-bold text-white uppercase tracking-wider mb-4 border-b border-zinc-800 pb-2">Create New Task</h3>
+            <div className="space-y-4 text-xs">
               <div>
-                <label className="text-zinc-500 uppercase font-bold block mb-1">Title</label>
-                <input type="text" value={newTitle} onChange={(e) => setNewTitle(e.target.value)} className="w-full bg-zinc-950 border border-zinc-800 focus:border-zinc-700 rounded px-3 py-2 text-zinc-200 outline-none" />
+                <label className="block text-zinc-500 uppercase font-bold text-[9px] mb-1">Task Title</label>
+                <input type="text" value={newTitle} onChange={(e) => setNewTitle(e.target.value)} placeholder="Enter task title reference name..." className="w-full bg-zinc-950 border border-zinc-800 rounded px-2.5 py-1.5 text-zinc-200 outline-none" />
               </div>
-              
               <div>
-                <label className="text-zinc-500 uppercase font-bold block mb-1">Description Summary</label>
-                <textarea rows={3} value={newDesc} onChange={(e) => setNewDesc(e.target.value)} className="w-full bg-zinc-950 border border-zinc-800 focus:border-zinc-700 rounded px-3 py-2 text-zinc-200 outline-none resize-none" />
+                <label className="block text-zinc-500 uppercase font-bold text-[9px] mb-1">Task Description</label>
+                <textarea rows={2} value={newDesc} onChange={(e) => setNewDesc(e.target.value)} placeholder="Provide short details regarding this task item..." className="w-full bg-zinc-950 border border-zinc-800 rounded px-2.5 py-1.5 text-zinc-200 outline-none resize-none" />
+              </div>
+
+              <div>
+                <label className="block text-zinc-500 uppercase font-bold text-[9px] mb-1">Task Checklist Items</label>
+                <div className="flex gap-2 mb-1.5">
+                  <input type="text" value={creationChecklistInput} onChange={(e) => setCreationChecklistInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && (setNewChecklist([...newChecklist, { id: Math.random().toString(), text: creationChecklistInput.trim(), isCompleted: false }]), setCreationChecklistInput(''))} placeholder="Enter a checklist requirement step item..." className="flex-1 bg-zinc-950 border border-zinc-800 rounded px-2.5 py-1.5 text-zinc-200 outline-none" />
+                  <button onClick={() => { if (creationChecklistInput.trim()) { setNewChecklist([...newChecklist, { id: Math.random().toString(), text: creationChecklistInput.trim(), isCompleted: false }]); setCreationChecklistInput(''); } }} className="px-3 bg-zinc-800 text-white rounded font-bold hover:bg-zinc-700 cursor-pointer">Add</button>
+                </div>
+                {newChecklist.length > 0 && (
+                  <div className="bg-zinc-950 border border-zinc-800/60 rounded p-1.5 space-y-1 max-h-24 overflow-y-auto">
+                    {newChecklist.map((item, i) => (
+                      <div key={item.id} className="flex items-center justify-between text-[11px] text-zinc-400 bg-zinc-900/40 px-1.5 py-0.5 rounded">
+                        <span className="truncate">{i + 1}. {item.text}</span>
+                        <button onClick={() => setNewChecklist(newChecklist.filter(n => n.id !== item.id))} className="text-rose-500 font-bold hover:text-rose-400 cursor-pointer">Remove</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="text-zinc-500 uppercase font-bold block mb-1">Edit Strategy Policy</label>
-                  <div className="flex gap-1 bg-zinc-950 p-1 border border-zinc-800 rounded">
-                    {(['anyone', 'just-me'] as AccessStrategy[]).map((strat) => (
-                      <button key={strat} onClick={() => setNewEditStrategy(strat)} className={`flex-1 py-1.5 rounded text-[10px] uppercase font-bold ${newEditStrategy === strat ? 'bg-zinc-800 text-white' : 'text-zinc-500 hover:text-zinc-400'}`}>
-                        {strat}
-                      </button>
-                    ))}
-                  </div>
+                  <label className="block text-zinc-500 uppercase font-bold text-[9px] mb-1">Who can edit this task?</label>
+                  <select value={newEditStrategy} onChange={(e) => setNewEditStrategy(e.target.value as AccessStrategy)} className="w-full bg-zinc-950 border border-zinc-800 rounded px-2 py-1.5 text-zinc-200 outline-none">
+                    <option value="anyone">Anyone can edit</option>
+                    <option value="just-me">Only me</option>
+                    <option value="custom">Custom permissions</option>
+                  </select>
+                  {newEditStrategy === 'custom' && (
+                    <div className="mt-1.5 bg-zinc-950 border border-zinc-800 rounded p-1.5 space-y-1 max-h-20 overflow-y-auto">
+                      {TEST_USERS.map(u => (
+                        <label key={u.id} className="flex items-center gap-2 text-[10px] text-zinc-400">
+                          <input type="checkbox" checked={newPermittedEditors.includes(u.id)} onChange={() => toggleSelectionUser(u.id, 'new-edit')} className="rounded accent-zinc-700" />
+                          {u.name}
+                        </label>
+                      ))}
+                    </div>
+                  )}
                 </div>
+
                 <div>
-                  <label className="text-zinc-500 uppercase font-bold block mb-1">Move Strategy Policy</label>
-                  <div className="flex gap-1 bg-zinc-950 p-1 border border-zinc-800 rounded">
-                    {(['anyone', 'just-me'] as AccessStrategy[]).map((strat) => (
-                      <button key={strat} onClick={() => setNewMoveStrategy(strat)} className={`flex-1 py-1.5 rounded text-[10px] uppercase font-bold ${newMoveStrategy === strat ? 'bg-zinc-800 text-white' : 'text-zinc-500 hover:text-zinc-400'}`}>
-                        {strat}
-                      </button>
-                    ))}
-                  </div>
+                  <label className="block text-zinc-500 uppercase font-bold text-[9px] mb-1">Who can move this task?</label>
+                  <select value={newMoveStrategy} onChange={(e) => setNewMoveStrategy(e.target.value as AccessStrategy)} className="w-full bg-zinc-950 border border-zinc-800 rounded px-2 py-1.5 text-zinc-200 outline-none">
+                    <option value="anyone">Anyone can move</option>
+                    <option value="just-me">Only me</option>
+                    <option value="custom">Custom permissions</option>
+                  </select>
+                  {newMoveStrategy === 'custom' && (
+                    <div className="mt-1.5 bg-zinc-950 border border-zinc-800 rounded p-1.5 space-y-1 max-h-20 overflow-y-auto">
+                      {TEST_USERS.map(u => (
+                        <label key={u.id} className="flex items-center gap-2 text-[10px] text-zinc-400">
+                          <input type="checkbox" checked={newPermittedMovers.includes(u.id)} onChange={() => toggleSelectionUser(u.id, 'new-move')} className="rounded accent-zinc-700" />
+                          {u.name}
+                        </label>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
 
-              <div>
-                <label className="text-zinc-500 uppercase font-bold block mb-1">Manifest Checklists</label>
-                <div className="flex gap-2 mb-2">
-                  <input type="text" value={creationChecklistInput} onChange={(e) => setCreationChecklistInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addCreationChecklistItem()} placeholder="Add granular item checklist target..." className="flex-1 bg-zinc-950 border border-zinc-800 rounded px-3 py-1.5 text-zinc-200 outline-none" />
-                  <button onClick={addCreationChecklistItem} className="bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-white px-3 rounded font-bold uppercase">Add</button>
-                </div>
-                {newChecklist.length > 0 && (
-                  <div className="max-h-24 overflow-y-auto bg-zinc-950/60 rounded border border-zinc-800/80 p-2 space-y-1">
-                    {newChecklist.map((item) => (
-                      <div key={item.id} className="flex items-center justify-between text-[11px] text-zinc-400 bg-zinc-900/40 px-2 py-1 rounded">
-                        <span>• {item.text}</span>
-                        <button onClick={() => removeCreationChecklistItem(item.id)} className="text-rose-500 hover:text-rose-400 font-bold px-1">✕</button>
-                      </div>
-                    ))}
-                  </div>
-                )}
+              <div className="flex justify-end gap-2 pt-3 border-t border-zinc-800">
+                <button onClick={() => setIsAddingTask(false)} className="px-3 py-1.5 border border-zinc-800 text-zinc-400 rounded font-bold uppercase cursor-pointer">Cancel</button>
+                <button onClick={saveNewTask} className="px-4 py-1.5 bg-blue-600 text-white rounded font-bold uppercase cursor-pointer">Create Block</button>
               </div>
-            </div>
-
-            <div className="flex items-center justify-end gap-2 mt-6 pt-4 border-t border-zinc-800/60">
-              <button onClick={() => setIsAddingTask(false)} className="px-4 py-2 border border-zinc-800 hover:bg-zinc-800 text-zinc-400 rounded font-bold uppercase cursor-pointer">Cancel</button>
-              <button onClick={saveNewTask} className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded font-bold uppercase cursor-pointer">Deploy Node</button>
             </div>
           </div>
         </div>
       )}
 
-      {/* --- EDIT MODAL INTERFACE --- */}
+      {/* --- TASK EDIT MODAL CONFIGURATION WINDOW --- */}
       {editingTask && (
-        <div className="fixed inset-0 bg-zinc-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="w-full max-w-xl bg-zinc-900 border border-zinc-800 rounded-xl p-6 font-mono text-xs">
-            <h3 className="text-sm font-bold text-white uppercase mb-4 tracking-wider">Mutate Baseline Parameters</h3>
-            
-            <div className="space-y-4">
+        <div className="fixed inset-0 bg-zinc-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 font-mono">
+          <div className="w-full max-w-lg bg-zinc-900 border border-zinc-800 rounded-xl p-5 shadow-2xl max-h-[85vh] overflow-y-auto minimal-scrollbar">
+            <h3 className="text-xs font-bold text-white uppercase tracking-wider mb-4 border-b border-zinc-800 pb-2">Edit Task Properties</h3>
+            <div className="space-y-4 text-xs">
               <div>
-                <label className="text-zinc-500 uppercase font-bold block mb-1">Title</label>
-                <input type="text" value={editTitle} onChange={(e) => setEditTitle(e.target.value)} className="w-full bg-zinc-950 border border-zinc-800 focus:border-zinc-700 rounded px-3 py-2 text-zinc-200 outline-none" />
+                <label className="block text-zinc-500 uppercase font-bold text-[9px] mb-1">Task Title</label>
+                <input type="text" value={editTitle} onChange={(e) => setEditTitle(e.target.value)} className="w-full bg-zinc-950 border border-zinc-800 rounded px-2.5 py-1.5 text-zinc-200 outline-none" />
+              </div>
+              <div>
+                <label className="block text-zinc-500 uppercase font-bold text-[9px] mb-1">Task Description</label>
+                <textarea rows={2} value={editDesc} onChange={(e) => setEditDesc(e.target.value)} className="w-full bg-zinc-950 border border-zinc-800 rounded px-2.5 py-1.5 text-zinc-200 outline-none resize-none" />
               </div>
 
               <div>
-                <label className="text-zinc-500 uppercase font-bold block mb-1">Manifest Checklist Configuration</label>
+                <label className="block text-zinc-500 uppercase font-bold text-[9px] mb-1">Edit Task Checklist Items</label>
                 <div className="flex gap-2 mb-2">
-                  <input type="text" value={newChecklistItemText} onChange={(e) => setNewChecklistItemText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addModificationChecklistItem()} placeholder="Append incremental requirements..." className="flex-1 bg-zinc-950 border border-zinc-800 rounded px-3 py-1.5 text-zinc-200 outline-none" />
-                  <button onClick={addModificationChecklistItem} className="bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-white px-3 rounded font-bold uppercase">Inject</button>
+                  <input type="text" value={newChecklistItemText} onChange={(e) => setNewChecklistItemText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && (setEditChecklist([...editChecklist, { id: Math.random().toString(), text: newChecklistItemText.trim(), isCompleted: false }]), setNewChecklistItemText(''))} placeholder="Append checklist item rule..." className="flex-1 bg-zinc-950 border border-zinc-800 rounded px-2.5 py-1.5 text-zinc-200 outline-none" />
+                  <button onClick={() => { if (newChecklistItemText.trim()) { setEditChecklist([...editChecklist, { id: Math.random().toString(), text: newChecklistItemText.trim(), isCompleted: false }]); setNewChecklistItemText(''); } }} className="px-3 bg-zinc-800 text-white rounded font-bold hover:bg-zinc-700 cursor-pointer">Add</button>
                 </div>
-                {editChecklist.length > 0 && (
-                  <div className="max-h-32 overflow-y-auto bg-zinc-950/60 rounded border border-zinc-800/80 p-2 space-y-1">
-                    {editChecklist.map((item) => (
-                      <div key={item.id} className="flex items-center justify-between text-[11px] text-zinc-400 bg-zinc-900/40 px-2 py-1 rounded">
-                        <span className={item.isCompleted ? 'line-through text-zinc-600' : ''}>• {item.text}</span>
-                        <button onClick={() => removeModificationChecklistItem(item.id)} className="text-rose-500 hover:text-rose-400 font-bold px-1">✕</button>
-                      </div>
-                    ))}
-                  </div>
-                )}
+                <div className="bg-zinc-950 border border-zinc-800 rounded p-1.5 space-y-1 max-h-24 overflow-y-auto">
+                  {editChecklist.map(item => (
+                    <div key={item.id} className="flex items-center justify-between bg-zinc-900/60 border border-zinc-800/40 rounded px-2 py-0.5">
+                      <span className={`truncate text-zinc-300 ${item.isCompleted ? 'line-through text-zinc-600' : ''}`}>{item.text}</span>
+                      <button onClick={() => setEditChecklist(editChecklist.filter(c => c.id !== item.id))} className="text-rose-500 font-bold uppercase hover:text-rose-400 ml-2 cursor-pointer">Remove</button>
+                    </div>
+                  ))}
+                </div>
               </div>
-            </div>
 
-            <div className="flex items-center justify-end gap-2 mt-6 pt-4 border-t border-zinc-800/60">
-              <button onClick={() => setEditingTask(null)} className="px-4 py-2 border border-zinc-800 hover:bg-zinc-800 text-zinc-400 rounded font-bold uppercase cursor-pointer">Abort</button>
-              <button onClick={saveEditedTask} className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded font-bold uppercase cursor-pointer">Commit Mutations</button>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-zinc-500 uppercase font-bold text-[9px] mb-1">Edit Access Strategy</label>
+                  <select value={editEditStrategy} onChange={(e) => setEditEditStrategy(e.target.value as AccessStrategy)} className="w-full bg-zinc-950 border border-zinc-800 rounded px-2 py-1.5 text-zinc-200 outline-none">
+                    <option value="anyone">Anyone can edit</option>
+                    <option value="just-me">Creator private lock</option>
+                    <option value="custom">Custom allocation profile</option>
+                  </select>
+                  {editEditStrategy === 'custom' && (
+                    <div className="mt-1.5 bg-zinc-950 border border-zinc-800 rounded p-1.5 space-y-1 max-h-20 overflow-y-auto">
+                      {TEST_USERS.map(u => (
+                        <label key={u.id} className="flex items-center gap-2 text-[10px] text-zinc-400">
+                          <input type="checkbox" checked={editPermittedEditors.includes(u.id)} onChange={() => toggleSelectionUser(u.id, 'edit-edit')} className="rounded" />
+                          {u.name}
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-zinc-500 uppercase font-bold text-[9px] mb-1">Move Access Strategy</label>
+                  <select value={editMoveStrategy} onChange={(e) => setEditMoveStrategy(e.target.value as AccessStrategy)} className="w-full bg-zinc-950 border border-zinc-800 rounded px-2 py-1.5 text-zinc-200 outline-none">
+                    <option value="anyone">Anyone can move</option>
+                    <option value="just-me">Creator private lock</option>
+                    <option value="custom">Custom allocation profile</option>
+                  </select>
+                  {editMoveStrategy === 'custom' && (
+                    <div className="mt-1.5 bg-zinc-950 border border-zinc-800 rounded p-1.5 space-y-1 max-h-20 overflow-y-auto">
+                      {TEST_USERS.map(u => (
+                        <label key={u.id} className="flex items-center gap-2 text-[10px] text-zinc-400">
+                          <input type="checkbox" checked={editPermittedMovers.includes(u.id)} onChange={() => toggleSelectionUser(u.id, 'edit-move')} className="rounded" />
+                          {u.name}
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-3 border-t border-zinc-800">
+                <button onClick={() => setEditingTask(null)} className="px-3 py-1.5 border border-zinc-800 text-zinc-400 rounded font-bold uppercase cursor-pointer">Cancel</button>
+                <button onClick={saveEditedTask} className="px-4 py-1.5 bg-rose-600 text-white rounded font-bold uppercase cursor-pointer">Save Changes</button>
+              </div>
             </div>
           </div>
         </div>
       )}
 
-      {/* --- HANDOFF RELEASE MODAL PANEL --- */}
+      {/* --- SYSTEM LOGS ARCHIVE SIDEBAR PANEL --- */}
+      {activeHistoryTask && currentUser.role === 'admin' && (
+        <div className="fixed inset-0 bg-zinc-950/80 backdrop-blur-sm flex justify-end z-50 font-mono">
+          <div className="w-full max-w-sm bg-zinc-900 border-l border-zinc-800 p-5 flex flex-col h-full shadow-2xl overflow-hidden">
+            <div className="flex items-center justify-between pb-3 border-b border-zinc-800 shrink-0">
+              <h3 className="text-xs font-bold text-white uppercase tracking-wider">Task Change Logs</h3>
+              <button onClick={() => setActiveHistoryTask(null)} className="text-zinc-500 hover:text-zinc-300 font-bold uppercase text-[10px] cursor-pointer">Close</button>
+            </div>
+            <div className="flex-1 overflow-y-auto py-3 space-y-3 text-[10px] minimal-scrollbar">
+              {activeHistoryTask.history && activeHistoryTask.history.length > 0 ? (
+                activeHistoryTask.history.map((log, idx) => (
+                  <div key={idx} className="bg-zinc-950/60 border border-zinc-800 p-2.5 rounded">
+                    <div className="text-zinc-500 text-[9px] mb-1">{new Date(log.timestamp).toLocaleString()}</div>
+                    <div className="text-zinc-200 font-bold">User: {log.movedBy}</div>
+                    <div className="text-zinc-400 mt-1 leading-normal text-[9px] bg-zinc-900 p-1.5 rounded border border-zinc-800/40">{log.notes || 'Task update registered.'}</div>
+                  </div>
+                ))
+              ) : (
+                <div className="text-zinc-600 text-center py-10 text-[9px]">No history events logged for this task item.</div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- HANDOFF RELEASE TASK OVERLAY PANEL --- */}
       {handoffTask && (
-        <div className="fixed inset-0 bg-zinc-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="w-full max-w-md bg-zinc-900 border border-zinc-800 rounded-xl p-6 font-mono text-xs">
-            <h3 className="text-sm font-bold text-rose-400 uppercase mb-2 tracking-wider">Release Work Token Session</h3>
-            <p className="text-[11px] text-zinc-400 mb-4 leading-relaxed">Explicit handover protocols logged directly to task history sequence registry database.</p>
-            
-            <div className="space-y-4">
-              <div>
-                <label className="text-zinc-500 uppercase font-bold block mb-1">Handoff Summary Notes</label>
-                <textarea rows={3} value={handoffNotes} onChange={(e) => setHandoffNotes(e.target.value)} placeholder="Specify modifications complete or hurdles encountered..." className="w-full bg-zinc-950 border border-zinc-800 focus:border-zinc-700 rounded px-3 py-2 text-zinc-200 outline-none resize-none" />
-              </div>
-              <div className="flex items-center justify-end gap-2">
-                <button onClick={() => setHandoffTask(null)} className="px-3 py-1.5 border border-zinc-800 bg-zinc-950 hover:bg-zinc-900 text-zinc-400 rounded font-bold uppercase cursor-pointer">Cancel</button>
-                <button onClick={commitReleaseHandoff} className="px-3 py-1.5 bg-rose-600 hover:bg-rose-500 text-white rounded font-bold uppercase cursor-pointer">Release Lock</button>
-              </div>
+        <div className="fixed inset-0 bg-zinc-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 font-mono">
+          <div className="w-full max-w-sm bg-zinc-900 border border-zinc-800 rounded-lg p-5 shadow-2xl">
+            <h3 className="text-xs font-bold uppercase text-white mb-1">Release Active Task Session</h3>
+            <p className="text-[11px] text-zinc-400 mb-3 leading-normal">Provide optional notes before unlocking this item for other team members.</p>
+            <textarea rows={2} value={handoffNotes} onChange={(e) => setHandoffNotes(e.target.value)} placeholder="Enter handoff or summary notes here..." className="w-full bg-zinc-950 border border-zinc-800 rounded p-2 text-xs text-zinc-200 outline-none resize-none mb-3" />
+            <div className="flex justify-end gap-2 text-[10px]">
+              <button onClick={() => setHandoffTask(null)} className="px-3 py-1.5 border border-zinc-800 text-zinc-400 rounded font-bold uppercase cursor-pointer">Cancel</button>
+              <button onClick={commitReleaseHandoff} className="px-3 py-1.5 bg-amber-500 text-zinc-950 font-bold rounded uppercase cursor-pointer">Release Task</button>
             </div>
           </div>
         </div>
