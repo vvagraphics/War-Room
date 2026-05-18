@@ -1,7 +1,8 @@
-import type { NextConfig } from "next";
-
-const nextConfig: NextConfig = {
-  /* config options here */
+// --- FIX FOR WEB FONT PRELOAD WARNING ---
+// next.config.js
+/** @type {import('next').NextConfig} */
+const nextConfig = {
+  optimizeFonts: false,
 };
 
-export default nextConfig;
+module.exports = nextConfig;
