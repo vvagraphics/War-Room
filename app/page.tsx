@@ -59,13 +59,12 @@ export default function WarRoom() {
   // Edit Form Fields State
   const [editTitle, setEditTitle] = useState<string>('');
   const [editDesc, setEditDesc] = useState<string>('');
-    const [editChecklist, setEditChecklist] = useState<ChecklistItem[]>([]);
+  const [editChecklist, setEditChecklist] = useState<ChecklistItem[]>([]);
   const [newChecklistItemText, setNewChecklistItemText] = useState<string>('');
   const [editEditStrategy, setEditEditStrategy] = useState<AccessStrategy>('anyone');
   const [editMoveStrategy, setEditMoveStrategy] = useState<AccessStrategy>('anyone');
   const [editPermittedEditors, setEditPermittedEditors] = useState<string[]>([]);
   const [editPermittedMovers, setEditPermittedMovers] = useState<string[]>([]);
-
 
   // Creation Form Fields State
   const [isAddingTask, setIsAddingTask] = useState<boolean>(false);
@@ -78,7 +77,6 @@ export default function WarRoom() {
   const [newMoveStrategy, setNewMoveStrategy] = useState<AccessStrategy>('anyone');
   const [newPermittedEditors, setNewPermittedEditors] = useState<string[]>([]);
   const [newPermittedMovers, setNewPermittedMovers] = useState<string[]>([]);
-  
 
   // Session Handover Release Form State
   const [handoffTask, setHandoffTask] = useState<Task | null>(null);
