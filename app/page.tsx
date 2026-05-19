@@ -59,24 +59,26 @@ export default function WarRoom() {
   // Edit Form Fields State
   const [editTitle, setEditTitle] = useState<string>('');
   const [editDesc, setEditDesc] = useState<string>('');
+    const [editChecklist, setEditChecklist] = useState<ChecklistItem[]>([]);
+  const [newChecklistItemText, setNewChecklistItemText] = useState<string>('');
   const [editEditStrategy, setEditEditStrategy] = useState<AccessStrategy>('anyone');
   const [editMoveStrategy, setEditMoveStrategy] = useState<AccessStrategy>('anyone');
   const [editPermittedEditors, setEditPermittedEditors] = useState<string[]>([]);
   const [editPermittedMovers, setEditPermittedMovers] = useState<string[]>([]);
-  const [editChecklist, setEditChecklist] = useState<ChecklistItem[]>([]);
-  const [newChecklistItemText, setNewChecklistItemText] = useState<string>('');
+
 
   // Creation Form Fields State
   const [isAddingTask, setIsAddingTask] = useState<boolean>(false);
   const [addTaskStatus, setAddTaskStatus] = useState<TaskStatus>('todo');
   const [newTitle, setNewTitle] = useState<string>('');
   const [newDesc, setNewDesc] = useState<string>('');
+  const [newChecklist, setNewChecklist] = useState<ChecklistItem[]>([]);
+  const [creationChecklistInput, setCreationChecklistInput] = useState<string>('');
   const [newEditStrategy, setNewEditStrategy] = useState<AccessStrategy>('anyone');
   const [newMoveStrategy, setNewMoveStrategy] = useState<AccessStrategy>('anyone');
   const [newPermittedEditors, setNewPermittedEditors] = useState<string[]>([]);
   const [newPermittedMovers, setNewPermittedMovers] = useState<string[]>([]);
-  const [newChecklist, setNewChecklist] = useState<ChecklistItem[]>([]);
-  const [creationChecklistInput, setCreationChecklistInput] = useState<string>('');
+  
 
   // Session Handover Release Form State
   const [handoffTask, setHandoffTask] = useState<Task | null>(null);
@@ -691,6 +693,49 @@ export default function WarRoom() {
             />
           </div>
 
+          {/* TASK CHECKLIST BUILD ENGINE */}
+          <div className="space-y-1">
+            <label className="block text-zinc-500 uppercase font-bold tracking-wider">Sub Task Checklist</label>
+            <div className="flex gap-1">
+              <input
+                type="text"
+                placeholder="New checklist node..."
+                value={creationChecklistInput}
+                onChange={(e) => setCreationChecklistInput(e.target.value)}
+                className="flex-1 bg-zinc-900 border border-zinc-800 rounded p-1.5 text-white uppercase text-[10px] focus:outline-none"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  if (!creationChecklistInput.trim()) return;
+                  setNewChecklist([...newChecklist, { id: crypto.randomUUID(), text: creationChecklistInput.trim(), checked: false }]);
+                  setCreationChecklistInput('');
+                }}
+                className="px-3 bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white rounded uppercase text-[9px] font-bold transition-colors"
+              >
+                Add
+              </button>
+            </div>
+            {newChecklist.length > 0 && (
+              <div className="bg-zinc-900/50 border border-zinc-900 rounded p-1.5 max-h-24 overflow-y-auto space-y-1 mt-1">
+                {newChecklist.map((item) => (
+                  <div key={item.id} className="text-zinc-400 text-[9px] uppercase tracking-wide flex justify-between items-center bg-zinc-950 px-2 py-1 rounded border border-zinc-900">
+                    <span>• {item.text}</span>
+                    <button
+                      type="button"
+                      onClick={() => setNewChecklist(newChecklist.filter(i => i.id !== item.id))}
+                      className="text-rose-500 hover:text-rose-400 text-[8px] font-bold ml-1 uppercase"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+
           {/* EDIT ACCESS STRATEGY SELECTION */}
           <div>
             <label className="block text-zinc-500 uppercase font-bold tracking-wider mb-1">Edit Access Strategy</label>
@@ -831,47 +876,7 @@ export default function WarRoom() {
             </div>
           )}
 
-          {/* TASK CHECKLIST BUILD ENGINE */}
-          <div className="space-y-1">
-            <label className="block text-zinc-500 uppercase font-bold tracking-wider">Sub Task Checklist</label>
-            <div className="flex gap-1">
-              <input
-                type="text"
-                placeholder="New checklist node..."
-                value={creationChecklistInput}
-                onChange={(e) => setCreationChecklistInput(e.target.value)}
-                className="flex-1 bg-zinc-900 border border-zinc-800 rounded p-1.5 text-white uppercase text-[10px] focus:outline-none"
-              />
-              <button
-                type="button"
-                onClick={() => {
-                  if (!creationChecklistInput.trim()) return;
-                  setNewChecklist([...newChecklist, { id: crypto.randomUUID(), text: creationChecklistInput.trim(), checked: false }]);
-                  setCreationChecklistInput('');
-                }}
-                className="px-3 bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white rounded uppercase text-[9px] font-bold transition-colors"
-              >
-                Add
-              </button>
-            </div>
-            {newChecklist.length > 0 && (
-              <div className="bg-zinc-900/50 border border-zinc-900 rounded p-1.5 max-h-24 overflow-y-auto space-y-1 mt-1">
-                {newChecklist.map((item) => (
-                  <div key={item.id} className="text-zinc-400 text-[9px] uppercase tracking-wide flex justify-between items-center bg-zinc-950 px-2 py-1 rounded border border-zinc-900">
-                    <span>• {item.text}</span>
-                    <button
-                      type="button"
-                      onClick={() => setNewChecklist(newChecklist.filter(i => i.id !== item.id))}
-                      className="text-rose-500 hover:text-rose-400 text-[8px] font-bold ml-1 uppercase"
-                    >
-                      Remove
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
+          
 
         {/* SUBMISSION OPERATIONS ROW BAR */}
         <div className="p-4 bg-zinc-900/30 border-t border-zinc-900 flex justify-end gap-1.5 shrink-0">
@@ -903,7 +908,7 @@ export default function WarRoom() {
       <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-4 border-b border-zinc-900 pb-4 gap-4 shrink-0">
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="text-sm font-black tracking-wider text-white uppercase">Workspace Dashboard</h1>
+            <h1 className="text-sm font-black tracking-wider text-white uppercase">War Room</h1>
             <span className="text-[9px] bg-blue-500/10 text-blue-400 border border-blue-500/20 px-2 py-0.5 rounded-full font-mono font-bold">V1.0.8</span>
           </div>
           <p className="text-[11px] text-zinc-500 font-mono mt-0.5">Logged in as: <span className="text-zinc-300 font-bold">{currentUser.name} ({currentUser.role.toUpperCase()})</span></p>
@@ -936,12 +941,12 @@ export default function WarRoom() {
                   setIsAddingTask(true);
                   setNewTitle('');
                   setNewDesc('');
+                  setNewChecklist([]);
+                  setCreationChecklistInput('');
                   setNewEditStrategy('anyone');
                   setNewMoveStrategy('anyone');
                   setNewPermittedEditors([]);
                   setNewPermittedMovers([]);
-                  setNewChecklist([]);
-                  setCreationChecklistInput('');
                 }} className="px-2 py-1 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-white font-mono text-[10px] uppercase rounded cursor-pointer">
                   Add Task
                 </button>
@@ -1009,12 +1014,13 @@ export default function WarRoom() {
                                 setEditingTask(task);
                                 setEditTitle(task.title);
                                 setEditDesc(task.description || '');
+                                setEditChecklist(task.checklist || []);
+                                setNewChecklistItemText('');
                                 setEditEditStrategy(task.editStrategy);
                                 setEditMoveStrategy(task.moveStrategy);
                                 setEditPermittedEditors(task.permittedEditors || []);
                                 setEditPermittedMovers(task.permittedMovers || []);
-                                setEditChecklist(task.checklist || []);
-                                setNewChecklistItemText('');
+                                
                               }} className="px-1.5 py-0.5 bg-zinc-900 text-zinc-400 hover:text-white border border-zinc-800 rounded text-[9px] uppercase cursor-pointer">Edit</button>
                             )}
                           </div>
@@ -1115,6 +1121,48 @@ export default function WarRoom() {
             />
           </div>
 
+
+          {/* TASK CHECKLIST BUILD ENGINE */}
+          <div className="space-y-1">
+            <label className="block text-zinc-500 uppercase font-bold tracking-wider">Sub Task Checklist</label>
+            <div className="flex gap-1">
+              <input
+                type="text"
+                placeholder="New checklist node..."
+                value={creationChecklistInput}
+                onChange={(e) => setCreationChecklistInput(e.target.value)}
+                className="flex-1 bg-zinc-900 border border-zinc-800 rounded p-1.5 text-white uppercase text-[10px] focus:outline-none"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  if (!creationChecklistInput.trim()) return;
+                  setNewChecklist([...newChecklist, { id: crypto.randomUUID(), text: creationChecklistInput.trim(), checked: false }]);
+                  setCreationChecklistInput('');
+                }}
+                className="px-3 bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white rounded uppercase text-[9px] font-bold transition-colors"
+              >
+                Add
+              </button>
+            </div>
+            {newChecklist.length > 0 && (
+              <div className="bg-zinc-900/50 border border-zinc-900 rounded p-1.5 max-h-24 overflow-y-auto space-y-1 mt-1">
+                {newChecklist.map((item) => (
+                  <div key={item.id} className="text-zinc-400 text-[9px] uppercase tracking-wide flex justify-between items-center bg-zinc-950 px-2 py-1 rounded border border-zinc-900">
+                    <span>• {item.text}</span>
+                    <button
+                      type="button"
+                      onClick={() => setNewChecklist(newChecklist.filter(i => i.id !== item.id))}
+                      className="text-rose-500 hover:text-rose-400 text-[8px] font-bold ml-1 uppercase"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
           {/* EDIT ACCESS STRATEGY SELECTION */}
           <div>
             <label className="block text-zinc-500 uppercase font-bold tracking-wider mb-1">Edit Access Strategy</label>
@@ -1255,46 +1303,7 @@ export default function WarRoom() {
             </div>
           )}
 
-          {/* TASK CHECKLIST BUILD ENGINE */}
-          <div className="space-y-1">
-            <label className="block text-zinc-500 uppercase font-bold tracking-wider">Sub Task Checklist</label>
-            <div className="flex gap-1">
-              <input
-                type="text"
-                placeholder="New checklist node..."
-                value={creationChecklistInput}
-                onChange={(e) => setCreationChecklistInput(e.target.value)}
-                className="flex-1 bg-zinc-900 border border-zinc-800 rounded p-1.5 text-white uppercase text-[10px] focus:outline-none"
-              />
-              <button
-                type="button"
-                onClick={() => {
-                  if (!creationChecklistInput.trim()) return;
-                  setNewChecklist([...newChecklist, { id: crypto.randomUUID(), text: creationChecklistInput.trim(), checked: false }]);
-                  setCreationChecklistInput('');
-                }}
-                className="px-3 bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white rounded uppercase text-[9px] font-bold transition-colors"
-              >
-                Add
-              </button>
-            </div>
-            {newChecklist.length > 0 && (
-              <div className="bg-zinc-900/50 border border-zinc-900 rounded p-1.5 max-h-24 overflow-y-auto space-y-1 mt-1">
-                {newChecklist.map((item) => (
-                  <div key={item.id} className="text-zinc-400 text-[9px] uppercase tracking-wide flex justify-between items-center bg-zinc-950 px-2 py-1 rounded border border-zinc-900">
-                    <span>• {item.text}</span>
-                    <button
-                      type="button"
-                      onClick={() => setNewChecklist(newChecklist.filter(i => i.id !== item.id))}
-                      className="text-rose-500 hover:text-rose-400 text-[8px] font-bold ml-1 uppercase"
-                    >
-                      Remove
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+          
         </div>
 
         {/* SUBMISSION OPERATIONS ROW BAR */}
