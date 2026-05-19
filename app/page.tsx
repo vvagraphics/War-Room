@@ -509,11 +509,21 @@ export default function WarRoom() {
 
   const saveNewTask = async () => {
     if (!newTitle.trim() || !currentUser) return;
+
+    // ==========================================
+    // ADD YOUR PERMISSION CONTROL CHECK HERE:
+    // ==========================================
+    if (currentUser.role === 'guest') {
+      alert("Permission Denied: Guests are not allowed to create new tasks.");
+      return;
+    }
+
     const supabase = getSupabase();
     if (!supabase) return;
 
     const columnTasks = tasks.filter((t) => t.status === addTaskStatus);
-    const position = columnTasks.length > 0 ? Math.max(...columnTasks.map((t) => t.position)) + 1000 : 1000;
+    const position = columnTasks.length > 0 ?
+      Math.max(...columnTasks.map((t) => t.position)) + 1000 : 1000;
 
     await supabase.from('tasks').insert([{
       title: newTitle,
@@ -638,6 +648,255 @@ export default function WarRoom() {
 
   // Find dynamic layout accent context colors for the add task popup panel header decoration line
   const activeColMeta = COLUMNS.find(c => c.id === addTaskStatus) || COLUMNS[0];
+  {/* GLOBAL ADD TASK MODAL OVERLAY PORTAL */}
+  {isAddingTask && (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm font-mono animate-fadeIn">
+      <div className="w-full max-w-md bg-zinc-950 border border-zinc-800 rounded-xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
+        
+        {/* Dynamic header colored border band accent tracker */}
+        <div className={`h-1 w-full ${activeColMeta.accent}`} />
+        
+        <div className="p-4 border-b border-zinc-900 flex justify-between items-center bg-zinc-900/20">
+          <div>
+            <h3 className="text-xs font-black text-white uppercase tracking-wider">Initialize Task Node</h3>
+            <p className="text-[9px] text-zinc-500 uppercase mt-0.5">Appending into target column queue: <span className="text-zinc-400 font-bold">{activeColMeta.title}</span></p>
+          </div>
+          <button 
+            onClick={() => setIsAddingTask(false)}
+            className="text-zinc-500 hover:text-white text-xs font-bold p-1 uppercase"
+          >
+            ✕
+          </button>
+        </div>
+
+        <div className="p-4 overflow-y-auto space-y-4 text-[10px]">
+          <div>
+            <label className="block text-zinc-500 uppercase font-bold tracking-wider mb-1">Task Title</label>
+            <input
+              type="text"
+              placeholder="Task Title..."
+              value={newTitle}
+              onChange={(e) => setNewTitle(e.target.value)}
+              className="w-full bg-zinc-900 border border-zinc-800 rounded p-1.5 text-white uppercase text-[10px] focus:outline-none focus:border-zinc-700"
+            />
+          </div>
+
+          <div>
+            <label className="block text-zinc-500 uppercase font-bold tracking-wider mb-1">Description</label>
+            <textarea
+              placeholder="Description details..."
+              value={newDesc}
+              onChange={(e) => setNewDesc(e.target.value)}
+              className="w-full bg-zinc-900 border border-zinc-800 rounded p-1.5 text-white uppercase text-[10px] focus:outline-none focus:border-zinc-700 h-16 resize-none"
+            />
+          </div>
+
+          {/* EDIT ACCESS STRATEGY SELECTION */}
+          <div>
+            <label className="block text-zinc-500 uppercase font-bold tracking-wider mb-1">Edit Access Strategy</label>
+            <div className="hidden sm:flex gap-1">
+              {(['anyone', 'creator', 'custom'] as AccessStrategy[]).map((strat) => {
+                const isActive = newEditStrategy === strat;
+                let theme = '';
+                if (strat === 'anyone') theme = isActive ? 'bg-blue-950/60 text-blue-400 border-blue-800/80 shadow-[0_0_8px_rgba(59,130,246,0.15)]' : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:text-zinc-400';
+                if (strat === 'creator') theme = isActive ? 'bg-amber-950/60 text-amber-400 border-amber-800/80 shadow-[0_0_8px_rgba(245,158,11,0.15)]' : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:text-zinc-400';
+                if (strat === 'custom') theme = isActive ? 'bg-rose-950/60 text-rose-400 border-rose-800/80 shadow-[0_0_8px_rgba(244,63,94,0.15)]' : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:text-zinc-400';
+                
+                return (
+                  <button
+                    key={strat}
+                    type="button"
+                    onClick={() => setNewEditStrategy(strat)}
+                    className={`flex-1 py-1.5 px-1 border rounded text-[9px] font-bold uppercase transition-all duration-150 ${theme}`}
+                  >
+                    {strat === 'anyone' ? 'Anyone' : strat === 'creator' ? 'Creator' : 'Custom'}
+                  </button>
+                );
+              })}
+            </div>
+            <select
+              value={newEditStrategy}
+              onChange={(e) => setNewEditStrategy(e.target.value as AccessStrategy)}
+              className="sm:hidden w-full bg-zinc-900 border border-zinc-800 rounded p-1.5 text-zinc-400 focus:outline-none uppercase font-bold"
+            >
+              <option value="anyone">Anyone</option>
+              <option value="creator">Creator Only</option>
+              <option value="custom">Custom Operators</option>
+            </select>
+          </div>
+
+          {/* DYNAMIC EDITOR CHECKBOX SELECTION LIST */}
+          {newEditStrategy === 'custom' && (
+            <div className="bg-zinc-900/40 border border-zinc-900 rounded p-2 space-y-1.5 animate-fadeIn">
+              <label className="block text-zinc-500 uppercase font-bold tracking-wider text-[8px]">Permitted Project Editors</label>
+              
+              {currentUser?.role === 'guest' ? (
+                <p className="text-rose-500 text-[9px] uppercase">⚠️ Access Denied: Junior Contractors cannot provision team access rules.</p>
+              ) : (
+                <div className="grid grid-cols-1 gap-1">
+                  {TEST_USERS.map((user) => {
+                    const isChecked = newPermittedEditors.includes(user.id);
+                    return (
+                      <label 
+                        key={user.id} 
+                        className={`flex items-center justify-between px-2 py-1.5 rounded border transition-colors cursor-pointer text-[9px] font-bold ${
+                          isChecked ? 'bg-zinc-900 border-zinc-700 text-white' : 'bg-zinc-950/40 border-zinc-900 text-zinc-500 hover:border-zinc-800'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <input 
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={() => toggleSelectionUser(user.id, 'new-edit')}
+                            className="accent-blue-500 h-3 w-3 rounded bg-zinc-900 border-zinc-800 cursor-pointer"
+                          />
+                          <span className="uppercase tracking-wide">{user.name}</span>
+                        </div>
+                        <span className="text-[8px] px-1.5 py-0.5 rounded border border-zinc-800/80 bg-zinc-900 text-zinc-400 font-normal">{user.badge}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* MOVE ACCESS STRATEGY SELECTION */}
+          <div>
+            <label className="block text-zinc-500 uppercase font-bold tracking-wider mb-1">Move Access Strategy</label>
+            <div className="hidden sm:flex gap-1">
+              {(['anyone', 'creator', 'custom'] as AccessStrategy[]).map((strat) => {
+                const isActive = newMoveStrategy === strat;
+                let theme = '';
+                if (strat === 'anyone') theme = isActive ? 'bg-blue-950/60 text-blue-400 border-blue-800/80 shadow-[0_0_8px_rgba(59,130,246,0.15)]' : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:text-zinc-400';
+                if (strat === 'creator') theme = isActive ? 'bg-amber-950/60 text-amber-400 border-amber-800/80 shadow-[0_0_8px_rgba(245,158,11,0.15)]' : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:text-zinc-400';
+                if (strat === 'custom') theme = isActive ? 'bg-rose-950/60 text-rose-400 border-rose-800/80 shadow-[0_0_8px_rgba(244,63,94,0.15)]' : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:text-zinc-400';
+                
+                return (
+                  <button
+                    key={strat}
+                    type="button"
+                    onClick={() => setNewMoveStrategy(strat)}
+                    className={`flex-1 py-1.5 px-1 border rounded text-[9px] font-bold uppercase transition-all duration-150 ${theme}`}
+                  >
+                    {strat === 'anyone' ? 'Anyone' : strat === 'creator' ? 'Creator' : 'Custom'}
+                  </button>
+                );
+              })}
+            </div>
+            <select
+              value={newMoveStrategy}
+              onChange={(e) => setNewMoveStrategy(e.target.value as AccessStrategy)}
+              className="sm:hidden w-full bg-zinc-900 border border-zinc-800 rounded p-1.5 text-zinc-400 focus:outline-none uppercase font-bold"
+            >
+              <option value="anyone">Anyone</option>
+              <option value="creator">Creator Only</option>
+              <option value="custom">Custom Operators</option>
+            </select>
+          </div>
+
+          {/* DYNAMIC MOVER CHECKBOX SELECTION LIST */}
+          {newMoveStrategy === 'custom' && (
+            <div className="bg-zinc-900/40 border border-zinc-900 rounded p-2 space-y-1.5 animate-fadeIn">
+              <label className="block text-zinc-500 uppercase font-bold tracking-wider text-[8px]">Permitted Project Movers</label>
+              
+              {currentUser?.role === 'guest' ? (
+                <p className="text-rose-500 text-[9px] uppercase">⚠️ Access Denied: Junior Contractors cannot provision team access rules.</p>
+              ) : (
+                <div className="grid grid-cols-1 gap-1">
+                  {TEST_USERS.map((user) => {
+                    const isChecked = newPermittedMovers.includes(user.id);
+                    return (
+                      <label 
+                        key={user.id} 
+                        className={`flex items-center justify-between px-2 py-1.5 rounded border transition-colors cursor-pointer text-[9px] font-bold ${
+                          isChecked ? 'bg-zinc-900 border-zinc-700 text-white' : 'bg-zinc-950/40 border-zinc-900 text-zinc-500 hover:border-zinc-800'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <input 
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={() => toggleSelectionUser(user.id, 'new-move')}
+                            className="accent-blue-500 h-3 w-3 rounded bg-zinc-900 border-zinc-800 cursor-pointer"
+                          />
+                          <span className="uppercase tracking-wide">{user.name}</span>
+                        </div>
+                        <span className="text-[8px] px-1.5 py-0.5 rounded border border-zinc-800/80 bg-zinc-900 text-zinc-400 font-normal">{user.badge}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* TASK CHECKLIST BUILD ENGINE */}
+          <div className="space-y-1">
+            <label className="block text-zinc-500 uppercase font-bold tracking-wider">Sub Task Checklist</label>
+            <div className="flex gap-1">
+              <input
+                type="text"
+                placeholder="New checklist node..."
+                value={creationChecklistInput}
+                onChange={(e) => setCreationChecklistInput(e.target.value)}
+                className="flex-1 bg-zinc-900 border border-zinc-800 rounded p-1.5 text-white uppercase text-[10px] focus:outline-none"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  if (!creationChecklistInput.trim()) return;
+                  setNewChecklist([...newChecklist, { id: crypto.randomUUID(), text: creationChecklistInput.trim(), checked: false }]);
+                  setCreationChecklistInput('');
+                }}
+                className="px-3 bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white rounded uppercase text-[9px] font-bold transition-colors"
+              >
+                Add
+              </button>
+            </div>
+            {newChecklist.length > 0 && (
+              <div className="bg-zinc-900/50 border border-zinc-900 rounded p-1.5 max-h-24 overflow-y-auto space-y-1 mt-1">
+                {newChecklist.map((item) => (
+                  <div key={item.id} className="text-zinc-400 text-[9px] uppercase tracking-wide flex justify-between items-center bg-zinc-950 px-2 py-1 rounded border border-zinc-900">
+                    <span>• {item.text}</span>
+                    <button
+                      type="button"
+                      onClick={() => setNewChecklist(newChecklist.filter(i => i.id !== item.id))}
+                      className="text-rose-500 hover:text-rose-400 text-[8px] font-bold ml-1 uppercase"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* SUBMISSION OPERATIONS ROW BAR */}
+        <div className="p-4 bg-zinc-900/30 border-t border-zinc-900 flex justify-end gap-1.5 shrink-0">
+          <button
+            onClick={() => setIsAddingTask(false)}
+            className="px-3 py-1.5 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-400 hover:text-zinc-200 uppercase rounded cursor-pointer transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={saveNewTask}
+            disabled={!newTitle.trim()}
+            className={`px-4 py-1.5 border rounded font-bold uppercase transition-all duration-150 ${
+              newTitle.trim()
+                ? 'bg-blue-950/40 border-blue-800 text-blue-400 shadow-[0_0_10px_rgba(59,130,246,0.1)] hover:bg-blue-900/40 hover:text-blue-300 cursor-pointer'
+                : 'bg-zinc-900/40 border-zinc-900 text-zinc-600 cursor-not-allowed'
+            }`}
+          >
+            Save Task
+          </button>
+        </div>
+      </div>
+    </div>
+  )}
+  
 
   return (
     <div ref={containerRef} onMouseMove={handleMouseMove} className="w-screen h-screen bg-zinc-950 text-zinc-100 p-4 md:p-6 lg:p-8 overflow-hidden font-sans relative flex flex-col">
@@ -765,12 +1024,28 @@ export default function WarRoom() {
                               <div className="relative">
                                 <button onClick={() => setActiveMoveMenuId(activeMoveMenuId === task.id ? null : task.id)} className="px-1.5 py-0.5 bg-zinc-950 border border-zinc-800 text-zinc-300 rounded text-[9px] font-bold cursor-pointer uppercase">Move Column</button>
                                 {activeMoveMenuId === task.id && (
-                                  <div className="absolute right-0 bottom-full mb-1 w-28 bg-zinc-900 border border-zinc-800 rounded shadow-xl z-50 py-1 text-[9px]">
-                                    {COLUMNS.map(c => (
-                                      <button key={c.id} disabled={task.status === c.id} onClick={() => executeMoveOperation(task.id, c.id)} className={`w-full px-2 py-1 text-left uppercase font-bold ${task.status === c.id ? 'text-zinc-600 bg-zinc-950/40 cursor-not-allowed' : 'text-zinc-300 hover:bg-zinc-800'}`}>to {c.id === 'todo' ? 'To Do' : c.id === 'in-progress' ? 'In Progress' : 'Done'}</button>
-                                    ))}
-                                  </div>
-                                )}
+  <div className="absolute right-0 bottom-full mb-1 w-28 bg-zinc-900 border border-zinc-800 rounded shadow-xl z-50 py-1 text-[9px]">
+    {COLUMNS.map(c => {
+      const currentIdx = COLUMNS.findIndex(col => col.id === task.status);
+      const targetIdx = COLUMNS.findIndex(col => col.id === c.id);
+      const arrow = targetIdx < currentIdx ? '← ' : targetIdx > currentIdx ? '→ ' : '';
+      
+      // Matches the signature colors of the columns
+      const arrowColor = c.id === 'todo' ? 'text-blue-400' : c.id === 'in-progress' ? 'text-amber-400' : 'text-emerald-400';
+
+      return (
+        <button 
+          key={c.id} 
+          disabled={task.status === c.id} 
+          onClick={() => executeMoveOperation(task.id, c.id)} 
+          className={`w-full px-2 py-1 text-left uppercase font-bold ${task.status === c.id ? 'text-zinc-600 bg-zinc-950/40 cursor-not-allowed' : 'text-zinc-300 hover:bg-zinc-800'}`}
+        >
+          {arrow && <span className={`${arrowColor} font-sans font-bold mr-0.5`}>{arrow}</span>}to {c.id === 'todo' ? 'To Do' : c.id === 'in-progress' ? 'In Progress' : 'Done'}
+        </button>
+      );
+    })}
+  </div>
+)}
                               </div>
                             )}
 
@@ -797,195 +1072,254 @@ export default function WarRoom() {
       </div>
 
       {/* --- RE-STYLED ADD TASK ACTION MODAL LAYOUT --- */}
-      {isAddingTask && (
-        <div className="fixed inset-0 bg-zinc-950/80 backdrop-blur-md flex items-center justify-center p-4 z-50 font-mono">
-          <div className="w-full max-w-lg bg-zinc-900 border border-zinc-800 rounded-xl p-5 shadow-2xl max-h-[85vh] overflow-y-auto minimal-scrollbar">
-            
-            {/* Header section decorated dynamically with the targeted column accent lines */}
-            <div className="flex items-center gap-2 mb-4 pb-2 border-b border-zinc-800/80">
-              <span className={`w-1.5 h-3.5 ${activeColMeta.accent} rounded-sm`} />
-              <h3 className="text-[11px] font-bold text-white uppercase tracking-wider">New Task &rarr; {activeColMeta.title}</h3>
+      {/* GLOBAL ADD TASK MODAL OVERLAY PORTAL */}
+  {isAddingTask && (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm font-mono animate-fadeIn">
+      <div className="w-full max-w-md bg-zinc-950 border border-zinc-800 rounded-xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
+        
+        {/* Dynamic header colored border band accent tracker */}
+        <div className={`h-1 w-full ${activeColMeta.accent}`} />
+        
+        <div className="p-4 border-b border-zinc-900 flex justify-between items-center bg-zinc-900/20">
+          <div>
+            <h3 className="text-xs font-black text-white uppercase tracking-wider">Initialize Task Node</h3>
+            <p className="text-[9px] text-zinc-500 uppercase mt-0.5">Appending into target column queue: <span className="text-zinc-400 font-bold">{activeColMeta.title}</span></p>
+          </div>
+          <button 
+            onClick={() => setIsAddingTask(false)}
+            className="text-zinc-500 hover:text-white text-xs font-bold p-1 uppercase"
+          >
+            ✕
+          </button>
+        </div>
+
+        <div className="p-4 overflow-y-auto space-y-4 text-[10px]">
+          <div>
+            <label className="block text-zinc-500 uppercase font-bold tracking-wider mb-1">Task Title</label>
+            <input
+              type="text"
+              placeholder="Task Title..."
+              value={newTitle}
+              onChange={(e) => setNewTitle(e.target.value)}
+              className="w-full bg-zinc-900 border border-zinc-800 rounded p-1.5 text-white uppercase text-[10px] focus:outline-none focus:border-zinc-700"
+            />
+          </div>
+
+          <div>
+            <label className="block text-zinc-500 uppercase font-bold tracking-wider mb-1">Description</label>
+            <textarea
+              placeholder="Description details..."
+              value={newDesc}
+              onChange={(e) => setNewDesc(e.target.value)}
+              className="w-full bg-zinc-900 border border-zinc-800 rounded p-1.5 text-white uppercase text-[10px] focus:outline-none focus:border-zinc-700 h-16 resize-none"
+            />
+          </div>
+
+          {/* EDIT ACCESS STRATEGY SELECTION */}
+          <div>
+            <label className="block text-zinc-500 uppercase font-bold tracking-wider mb-1">Edit Access Strategy</label>
+            <div className="hidden sm:flex gap-1">
+              {(['anyone', 'creator', 'custom'] as AccessStrategy[]).map((strat) => {
+                const isActive = newEditStrategy === strat;
+                let theme = '';
+                if (strat === 'anyone') theme = isActive ? 'bg-blue-950/60 text-blue-400 border-blue-800/80 shadow-[0_0_8px_rgba(59,130,246,0.15)]' : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:text-zinc-400';
+                if (strat === 'creator') theme = isActive ? 'bg-amber-950/60 text-amber-400 border-amber-800/80 shadow-[0_0_8px_rgba(245,158,11,0.15)]' : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:text-zinc-400';
+                if (strat === 'custom') theme = isActive ? 'bg-rose-950/60 text-rose-400 border-rose-800/80 shadow-[0_0_8px_rgba(244,63,94,0.15)]' : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:text-zinc-400';
+                
+                return (
+                  <button
+                    key={strat}
+                    type="button"
+                    onClick={() => setNewEditStrategy(strat)}
+                    className={`flex-1 py-1.5 px-1 border rounded text-[9px] font-bold uppercase transition-all duration-150 ${theme}`}
+                  >
+                    {strat === 'anyone' ? 'Anyone' : strat === 'creator' ? 'Creator' : 'Custom'}
+                  </button>
+                );
+              })}
             </div>
+            <select
+              value={newEditStrategy}
+              onChange={(e) => setNewEditStrategy(e.target.value as AccessStrategy)}
+              className="sm:hidden w-full bg-zinc-900 border border-zinc-800 rounded p-1.5 text-zinc-400 focus:outline-none uppercase font-bold"
+            >
+              <option value="anyone">Anyone</option>
+              <option value="creator">Creator Only</option>
+              <option value="custom">Custom Operators</option>
+            </select>
+          </div>
 
-            <div className="space-y-4 text-xs">
-              <div>
-                <label className="block text-zinc-500 uppercase font-bold text-[9px] mb-1">Title</label>
-                <input type="text" value={newTitle} onChange={(e) => setNewTitle(e.target.value)} placeholder="Task summary..." className="w-full bg-zinc-950 border border-zinc-800 rounded px-2.5 py-1.5 text-zinc-200 outline-none placeholder:text-zinc-700" />
-              </div>
-              <div>
-                <label className="block text-zinc-500 uppercase font-bold text-[9px] mb-1">Description</label>
-                <textarea rows={2} value={newDesc} onChange={(e) => setNewDesc(e.target.value)} placeholder="Task details..." className="w-full bg-zinc-950 border border-zinc-800 rounded px-2.5 py-1.5 text-zinc-200 outline-none resize-none placeholder:text-zinc-700" />
-              </div>
-
-              {/* Grid block grouping the editing and movement configuration rules safely */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-zinc-500 uppercase font-bold text-[9px] mb-1">Editing Access</label>
-                  <select value={newEditStrategy} onChange={(e) => setNewEditStrategy(e.target.value as AccessStrategy)} className="w-full bg-zinc-950 border border-zinc-800 rounded px-2 py-1.5 text-zinc-300 outline-none uppercase font-bold text-[10px]">
-                    <option value="anyone">Anyone</option>
-                    <option value="just-me">Just Me</option>
-                    <option value="custom">Custom Whitelist</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-zinc-500 uppercase font-bold text-[9px] mb-1">Moving Access</label>
-                  <select value={newMoveStrategy} onChange={(e) => setNewMoveStrategy(e.target.value as AccessStrategy)} className="w-full bg-zinc-950 border border-zinc-800 rounded px-2 py-1.5 text-zinc-300 outline-none uppercase font-bold text-[10px]">
-                    <option value="anyone">Anyone</option>
-                    <option value="just-me">Just Me</option>
-                    <option value="custom">Custom Whitelist</option>
-                  </select>
-                </div>
-              </div>
-
-              {/* Whitelist selection filters for Edit strategies */}
-              {newEditStrategy === 'custom' && (
-                <div className="p-2.5 bg-zinc-950/60 border border-zinc-800/80 rounded animate-fadeIn">
-                  <label className="block text-zinc-500 uppercase font-bold text-[8px] mb-1.5 tracking-wider">Permitted Editors Whitelist</label>
-                  <div className="flex flex-wrap gap-1.5">
-                    {TEST_USERS.map(u => (
-                      <button key={u.id} type="button" onClick={() => toggleSelectionUser(u.id, 'new-edit')} className={`px-2 py-1 border rounded text-[9px] font-bold transition-all ${newPermittedEditors.includes(u.id) ? 'bg-blue-950/40 text-blue-400 border-blue-800' : 'bg-zinc-900 text-zinc-500 border-zinc-800 hover:text-zinc-300'}`}>{u.name}</button>
-                    ))}
-                  </div>
+          {/* DYNAMIC EDITOR CHECKBOX SELECTION LIST */}
+          {newEditStrategy === 'custom' && (
+            <div className="bg-zinc-900/40 border border-zinc-900 rounded p-2 space-y-1.5 animate-fadeIn">
+              <label className="block text-zinc-500 uppercase font-bold tracking-wider text-[8px]">Permitted Project Editors</label>
+              
+              {currentUser?.role === 'guest' ? (
+                <p className="text-rose-500 text-[9px] uppercase">⚠️ Access Denied: Junior Contractors cannot provision team access rules.</p>
+              ) : (
+                <div className="grid grid-cols-1 gap-1">
+                  {TEST_USERS.map((user) => {
+                    const isChecked = newPermittedEditors.includes(user.id);
+                    return (
+                      <label 
+                        key={user.id} 
+                        className={`flex items-center justify-between px-2 py-1.5 rounded border transition-colors cursor-pointer text-[9px] font-bold ${
+                          isChecked ? 'bg-zinc-900 border-zinc-700 text-white' : 'bg-zinc-950/40 border-zinc-900 text-zinc-500 hover:border-zinc-800'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <input 
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={() => toggleSelectionUser(user.id, 'new-edit')}
+                            className="accent-blue-500 h-3 w-3 rounded bg-zinc-900 border-zinc-800 cursor-pointer"
+                          />
+                          <span className="uppercase tracking-wide">{user.name}</span>
+                        </div>
+                        <span className="text-[8px] px-1.5 py-0.5 rounded border border-zinc-800/80 bg-zinc-900 text-zinc-400 font-normal">{user.badge}</span>
+                      </label>
+                    );
+                  })}
                 </div>
               )}
+            </div>
+          )}
 
-              {/* Whitelist selection filters for Move strategies */}
-              {newMoveStrategy === 'custom' && (
-                <div className="p-2.5 bg-zinc-950/60 border border-zinc-800/80 rounded animate-fadeIn">
-                  <label className="block text-zinc-500 uppercase font-bold text-[8px] mb-1.5 tracking-wider">Permitted Movers Whitelist</label>
-                  <div className="flex flex-wrap gap-1.5">
-                    {TEST_USERS.map(u => (
-                      <button key={u.id} type="button" onClick={() => toggleSelectionUser(u.id, 'new-move')} className={`px-2 py-1 border rounded text-[9px] font-bold transition-all ${newPermittedMovers.includes(u.id) ? 'bg-amber-950/40 text-amber-400 border-amber-800' : 'bg-zinc-900 text-zinc-500 border-zinc-800 hover:text-zinc-300'}`}>{u.name}</button>
-                    ))}
-                  </div>
+          {/* MOVE ACCESS STRATEGY SELECTION */}
+          <div>
+            <label className="block text-zinc-500 uppercase font-bold tracking-wider mb-1">Move Access Strategy</label>
+            <div className="hidden sm:flex gap-1">
+              {(['anyone', 'creator', 'custom'] as AccessStrategy[]).map((strat) => {
+                const isActive = newMoveStrategy === strat;
+                let theme = '';
+                if (strat === 'anyone') theme = isActive ? 'bg-blue-950/60 text-blue-400 border-blue-800/80 shadow-[0_0_8px_rgba(59,130,246,0.15)]' : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:text-zinc-400';
+                if (strat === 'creator') theme = isActive ? 'bg-amber-950/60 text-amber-400 border-amber-800/80 shadow-[0_0_8px_rgba(245,158,11,0.15)]' : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:text-zinc-400';
+                if (strat === 'custom') theme = isActive ? 'bg-rose-950/60 text-rose-400 border-rose-800/80 shadow-[0_0_8px_rgba(244,63,94,0.15)]' : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:text-zinc-400';
+                
+                return (
+                  <button
+                    key={strat}
+                    type="button"
+                    onClick={() => setNewMoveStrategy(strat)}
+                    className={`flex-1 py-1.5 px-1 border rounded text-[9px] font-bold uppercase transition-all duration-150 ${theme}`}
+                  >
+                    {strat === 'anyone' ? 'Anyone' : strat === 'creator' ? 'Creator' : 'Custom'}
+                  </button>
+                );
+              })}
+            </div>
+            <select
+              value={newMoveStrategy}
+              onChange={(e) => setNewMoveStrategy(e.target.value as AccessStrategy)}
+              className="sm:hidden w-full bg-zinc-900 border border-zinc-800 rounded p-1.5 text-zinc-400 focus:outline-none uppercase font-bold"
+            >
+              <option value="anyone">Anyone</option>
+              <option value="creator">Creator Only</option>
+              <option value="custom">Custom Operators</option>
+            </select>
+          </div>
+
+          {/* DYNAMIC MOVER CHECKBOX SELECTION LIST */}
+          {newMoveStrategy === 'custom' && (
+            <div className="bg-zinc-900/40 border border-zinc-900 rounded p-2 space-y-1.5 animate-fadeIn">
+              <label className="block text-zinc-500 uppercase font-bold tracking-wider text-[8px]">Permitted Project Movers</label>
+              
+              {currentUser?.role === 'guest' ? (
+                <p className="text-rose-500 text-[9px] uppercase">⚠️ Access Denied: Junior Contractors cannot provision team access rules.</p>
+              ) : (
+                <div className="grid grid-cols-1 gap-1">
+                  {TEST_USERS.map((user) => {
+                    const isChecked = newPermittedMovers.includes(user.id);
+                    return (
+                      <label 
+                        key={user.id} 
+                        className={`flex items-center justify-between px-2 py-1.5 rounded border transition-colors cursor-pointer text-[9px] font-bold ${
+                          isChecked ? 'bg-zinc-900 border-zinc-700 text-white' : 'bg-zinc-950/40 border-zinc-900 text-zinc-500 hover:border-zinc-800'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <input 
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={() => toggleSelectionUser(user.id, 'new-move')}
+                            className="accent-blue-500 h-3 w-3 rounded bg-zinc-900 border-zinc-800 cursor-pointer"
+                          />
+                          <span className="uppercase tracking-wide">{user.name}</span>
+                        </div>
+                        <span className="text-[8px] px-1.5 py-0.5 rounded border border-zinc-800/80 bg-zinc-900 text-zinc-400 font-normal">{user.badge}</span>
+                      </label>
+                    );
+                  })}
                 </div>
               )}
+            </div>
+          )}
 
-              {/* Checklist Builder Block Section */}
-              <div>
-                <label className="block text-zinc-500 uppercase font-bold text-[9px] mb-1">Checklist Items ({newChecklist.length})</label>
-                <div className="flex gap-2 mb-2">
-                  <input type="text" value={creationChecklistInput} onChange={(e) => setCreationChecklistInput(e.target.value)} onKeyDown={(e) => {
-                    if (e.key === 'Enter' && creationChecklistInput.trim()) {
-                      e.preventDefault();
-                      setNewChecklist([...newChecklist, { id: Math.random().toString(), text: creationChecklistInput.trim(), isCompleted: false }]);
-                      setCreationChecklistInput('');
-                    }
-                  }} placeholder="Add checklist target entry..." className="flex-1 bg-zinc-950 border border-zinc-800 rounded px-2.5 py-1 text-zinc-200 outline-none placeholder:text-zinc-700" />
-                  <button type="button" onClick={() => {
-                    if (!creationChecklistInput.trim()) return;
-                    setNewChecklist([...newChecklist, { id: Math.random().toString(), text: creationChecklistInput.trim(), isCompleted: false }]);
-                    setCreationChecklistInput('');
-                  }} className="px-3 bg-zinc-950 border border-zinc-800 text-zinc-400 hover:text-white rounded text-[10px] uppercase font-bold">&bull;&bull;&bull;</button>
-                </div>
-
-                {newChecklist.length > 0 && (
-                  <div className="max-h-24 overflow-y-auto space-y-1 bg-zinc-950/40 p-2 border border-zinc-800 rounded">
-                    {newChecklist.map((item, idx) => (
-                      <div key={item.id} className="flex items-center justify-between text-[10px] text-zinc-400 font-mono bg-zinc-900/50 px-2 py-1 rounded border border-zinc-950">
-                        <span className="truncate pr-2">{idx + 1}. {item.text}</span>
-                        <button type="button" onClick={() => setNewChecklist(newChecklist.filter(i => i.id !== item.id))} className="text-zinc-600 hover:text-rose-400 font-bold px-1">&times;</button>
-                      </div>
-                    ))}
+          {/* TASK CHECKLIST BUILD ENGINE */}
+          <div className="space-y-1">
+            <label className="block text-zinc-500 uppercase font-bold tracking-wider">Sub Task Checklist</label>
+            <div className="flex gap-1">
+              <input
+                type="text"
+                placeholder="New checklist node..."
+                value={creationChecklistInput}
+                onChange={(e) => setCreationChecklistInput(e.target.value)}
+                className="flex-1 bg-zinc-900 border border-zinc-800 rounded p-1.5 text-white uppercase text-[10px] focus:outline-none"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  if (!creationChecklistInput.trim()) return;
+                  setNewChecklist([...newChecklist, { id: crypto.randomUUID(), text: creationChecklistInput.trim(), checked: false }]);
+                  setCreationChecklistInput('');
+                }}
+                className="px-3 bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white rounded uppercase text-[9px] font-bold transition-colors"
+              >
+                Add
+              </button>
+            </div>
+            {newChecklist.length > 0 && (
+              <div className="bg-zinc-900/50 border border-zinc-900 rounded p-1.5 max-h-24 overflow-y-auto space-y-1 mt-1">
+                {newChecklist.map((item) => (
+                  <div key={item.id} className="text-zinc-400 text-[9px] uppercase tracking-wide flex justify-between items-center bg-zinc-950 px-2 py-1 rounded border border-zinc-900">
+                    <span>• {item.text}</span>
+                    <button
+                      type="button"
+                      onClick={() => setNewChecklist(newChecklist.filter(i => i.id !== item.id))}
+                      className="text-rose-500 hover:text-rose-400 text-[8px] font-bold ml-1 uppercase"
+                    >
+                      Remove
+                    </button>
                   </div>
-                )}
+                ))}
               </div>
-            </div>
-
-            {/* Modal action button footers layout links */}
-            <div className="flex items-center justify-end gap-2 mt-5 pt-3 border-t border-zinc-800/80">
-              <button onClick={() => setIsAddingTask(false)} className="px-3 py-1.5 bg-zinc-950 border border-zinc-800 text-zinc-400 hover:text-zinc-200 rounded font-bold text-[10px] uppercase cursor-pointer">Cancel</button>
-              <button onClick={saveNewTask} disabled={!newTitle.trim()} className={`px-4 py-1.5 rounded font-bold text-[10px] uppercase border transition-all ${newTitle.trim() ? 'bg-zinc-100 text-zinc-950 hover:bg-white border-white cursor-pointer' : 'bg-zinc-800 text-zinc-600 border-zinc-800 cursor-not-allowed'}`}>Save Task</button>
-            </div>
-
+            )}
           </div>
         </div>
-      )}
 
-      {/* --- EDIT TASK DRAWER MODAL WINDOW --- */}
-      {editingTask && (
-        <div className="fixed inset-0 bg-zinc-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 font-mono">
-          <div className="w-full max-w-lg bg-zinc-900 border border-zinc-800 rounded-xl p-5 shadow-2xl max-h-[85vh] overflow-y-auto minimal-scrollbar">
-            <h3 className="text-[11px] font-bold text-white uppercase tracking-wider mb-4 border-b border-zinc-800 pb-2">Modify Task Settings</h3>
-            <div className="space-y-4 text-xs">
-              <div>
-                <label className="block text-zinc-500 uppercase font-bold text-[9px] mb-1">Task Title</label>
-                <input type="text" value={editTitle} onChange={(e) => setEditTitle(e.target.value)} className="w-full bg-zinc-950 border border-zinc-800 rounded px-2.5 py-1.5 text-zinc-200 outline-none" />
-              </div>
-              <div>
-                <label className="block text-zinc-500 uppercase font-bold text-[9px] mb-1">Task Description</label>
-                <textarea rows={2} value={editDesc} onChange={(e) => setEditDesc(e.target.value)} className="w-full bg-zinc-950 border border-zinc-800 rounded px-2.5 py-1.5 text-zinc-200 outline-none resize-none" />
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-zinc-500 uppercase font-bold text-[9px] mb-1">Edit Strategy Rule</label>
-                  <select value={editEditStrategy} onChange={(e) => setEditEditStrategy(e.target.value as AccessStrategy)} className="w-full bg-zinc-950 border border-zinc-800 rounded px-2 py-1.5 text-zinc-300 outline-none uppercase font-bold text-[10px]">
-                    <option value="anyone">Anyone</option>
-                    <option value="just-me">Just Me</option>
-                    <option value="custom">Custom Whitelist</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-zinc-500 uppercase font-bold text-[9px] mb-1">Move Strategy Rule</label>
-                  <select value={editMoveStrategy} onChange={(e) => setEditMoveStrategy(e.target.value as AccessStrategy)} className="w-full bg-zinc-950 border border-zinc-800 rounded px-2 py-1.5 text-zinc-300 outline-none uppercase font-bold text-[10px]">
-                    <option value="anyone">Anyone</option>
-                    <option value="just-me">Just Me</option>
-                    <option value="custom">Custom Whitelist</option>
-                  </select>
-                </div>
-              </div>
-
-              {editEditStrategy === 'custom' && (
-                <div className="p-2 bg-zinc-950 rounded border border-zinc-800">
-                  <label className="block text-zinc-500 uppercase font-bold text-[8px] mb-1">Permitted Editors Whitelist</label>
-                  <div className="flex flex-wrap gap-1">
-                    {TEST_USERS.map(u => (
-                      <button key={u.id} type="button" onClick={() => toggleSelectionUser(u.id, 'edit-edit')} className={`px-2 py-0.5 border rounded text-[9px] ${editPermittedEditors.includes(u.id) ? 'bg-blue-950 text-blue-400 border-blue-900' : 'bg-zinc-900 text-zinc-500 border-zinc-800'}`}>{u.name}</button>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {editMoveStrategy === 'custom' && (
-                <div className="p-2 bg-zinc-950 rounded border border-zinc-800">
-                  <label className="block text-zinc-500 uppercase font-bold text-[8px] mb-1">Permitted Movers Whitelist</label>
-                  <div className="flex flex-wrap gap-1">
-                    {TEST_USERS.map(u => (
-                      <button key={u.id} type="button" onClick={() => toggleSelectionUser(u.id, 'edit-move')} className={`px-2 py-0.5 border rounded text-[9px] ${editPermittedMovers.includes(u.id) ? 'bg-amber-950 text-amber-400 border-amber-900' : 'bg-zinc-900 text-zinc-500 border-zinc-800'}`}>{u.name}</button>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              <div>
-                <label className="block text-zinc-500 uppercase font-bold text-[9px] mb-1">Task Checklist Node Entries</label>
-                <div className="flex gap-2 mb-2">
-                  <input type="text" value={newChecklistItemText} onChange={(e) => setNewChecklistItemText(e.target.value)} placeholder="Append checklist criteria line..." className="flex-1 bg-zinc-950 border border-zinc-800 rounded px-2 py-1 text-zinc-200 outline-none" />
-                  <button type="button" onClick={() => {
-                    if (!newChecklistItemText.trim()) return;
-                    setEditChecklist([...editChecklist, { id: Math.random().toString(), text: newChecklistItemText.trim(), isCompleted: false }]);
-                    setNewChecklistItemText('');
-                  }} className="px-2 bg-zinc-950 border border-zinc-800 text-zinc-400 hover:text-white rounded text-[10px] uppercase font-bold">Add</button>
-                </div>
-                <div className="space-y-1 max-h-32 overflow-y-auto">
-                  {editChecklist.map(item => (
-                    <div key={item.id} className="flex items-center justify-between text-[10px] bg-zinc-950 px-2 py-1 rounded border border-zinc-800">
-                      <span className={item.isCompleted ? 'line-through text-zinc-600' : 'text-zinc-300'}>{item.text}</span>
-                      <button type="button" onClick={() => setEditChecklist(editChecklist.filter(i => i.id !== item.id))} className="text-rose-400 hover:text-rose-300 font-bold px-1">&times;</button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            <div className="flex items-center justify-end gap-2 mt-4 pt-2 border-t border-zinc-800">
-              <button onClick={() => setEditingTask(null)} className="px-3 py-1.5 bg-zinc-950 border border-zinc-800 text-zinc-400 hover:text-zinc-200 rounded text-[10px] uppercase cursor-pointer">Close</button>
-              <button onClick={saveEditedTask} className="px-4 py-1.5 bg-zinc-100 text-zinc-950 hover:bg-white rounded font-bold text-[10px] uppercase cursor-pointer">Apply Changes</button>
-            </div>
-          </div>
+        {/* SUBMISSION OPERATIONS ROW BAR */}
+        <div className="p-4 bg-zinc-900/30 border-t border-zinc-900 flex justify-end gap-1.5 shrink-0">
+          <button
+            onClick={() => setIsAddingTask(false)}
+            className="px-3 py-1.5 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-400 hover:text-zinc-200 uppercase rounded cursor-pointer transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={saveNewTask}
+            disabled={!newTitle.trim()}
+            className={`px-4 py-1.5 border rounded font-bold uppercase transition-all duration-150 ${
+              newTitle.trim()
+                ? 'bg-blue-950/40 border-blue-800 text-blue-400 shadow-[0_0_10px_rgba(59,130,246,0.1)] hover:bg-blue-900/40 hover:text-blue-300 cursor-pointer'
+                : 'bg-zinc-900/40 border-zinc-900 text-zinc-600 cursor-not-allowed'
+            }`}
+          >
+            Save Task
+          </button>
         </div>
-      )}
+      </div>
+    </div>
+  )}
 
       {/* --- HANDOFF RELEASE FLOW DIALOG WINDOW --- */}
       {handoffTask && (
