@@ -47,7 +47,7 @@ export default function WarRoom() {
   const [currentUser, setCurrentUser] = useState<Profile | null>(null);
   const [timeTicker, setTimeTicker] = useState<number>(Date.now());
   const [savedTasks, setSavedTasks] = useState<Record<string, boolean>>({});
-  
+
   // Mobile / Screen View Controls
   const [activeMobileTab, setActiveMobileTab] = useState<TaskStatus>('todo');
   const [activeMoveMenuId, setActiveMoveMenuId] = useState<string | null>(null);
@@ -55,7 +55,7 @@ export default function WarRoom() {
   // Modals and Drawers
   const [activeHistoryTask, setActiveHistoryTask] = useState<Task | null>(null);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
-  
+
   // Edit Form Fields State
   const [editTitle, setEditTitle] = useState<string>('');
   const [editDesc, setEditDesc] = useState<string>('');
@@ -95,16 +95,16 @@ export default function WarRoom() {
     description: item.description || '',
     status: (item.status as TaskStatus) || 'todo',
     position: Number(item.position) || 0,
-    createdBy: item.created_by || '',
-    createdByName: item.created_by_name || 'System User',
-    lastMovedBy: item.last_moved_by || undefined,
+    createdBy: item.created_by || item.createdBy || '',
+    createdByName: item.created_by_name || item.createdByName || 'System User',
+    lastMovedBy: item.last_moved_by || item.lastMovedBy || undefined,
     history: item.history || [],
-    editStrategy: (item.edit_strategy as AccessStrategy) || 'anyone',
-    moveStrategy: (item.move_strategy as AccessStrategy) || 'anyone',
-    permittedEditors: item.permitted_editors || [],
-    permittedMovers: item.permitted_movers || [],
+    editStrategy: (item.edit_strategy || item.editStrategy || 'anyone') as AccessStrategy,
+    moveStrategy: (item.move_strategy || item.moveStrategy || 'anyone') as AccessStrategy,
+    permittedEditors: item.permitted_editors || item.permittedEditors || [],
+    permittedMovers: item.permitted_movers || item.permittedMovers || [],
     checklist: item.checklist || [],
-    activeSession: item.active_session || undefined
+    activeSession: item.active_session || item.activeSession || undefined
   });
 
   // --- NATIVE API INTEGRATION LOOP ---
@@ -233,8 +233,8 @@ export default function WarRoom() {
   useEffect(() => {
     const checkDeadSessionsAndAlert = async () => {
       if (!currentUser) return;
-      const testingTimeoutThreshold = 60000; // 1 minute session runtime limit
-      const warningAudioHorizon = 30000;    // Alarm warning alerts start at 30 seconds left
+      const testingTimeoutThreshold = 60000;
+      const warningAudioHorizon = 30000;
       const now = Date.now();
       let playWarningBeep = false;
       const supabase = getSupabase();
@@ -398,11 +398,11 @@ export default function WarRoom() {
 
     await supabase
       .from('tasks')
-      .update({ 
-        status: targetStatus, 
-        position: newPosition, 
-        last_moved_by: currentUser.name, 
-        history: mergedHistory 
+      .update({
+        status: targetStatus,
+        position: newPosition,
+        last_moved_by: currentUser.name,
+        history: mergedHistory
       })
       .eq('id', parseInt(taskId, 10));
   };
@@ -614,13 +614,10 @@ export default function WarRoom() {
     return diff <= 0 ? 0 : Math.ceil(diff / 1000);
   };
 
-  // --- UI RENDERING & COMPONENT LAYER ---
-  
-  // Clean restored Fallback Selector view to prevent any blank screen instances
   if (!currentUser) {
     return (
       <div className="w-screen h-screen bg-zinc-950 flex items-center justify-center p-4 font-mono">
-        <div className="w-full max-w-sm bg-zinc-910 border border-zinc-800 rounded-xl p-6 text-center shadow-2xl">
+        <div className="w-full max-w-sm bg-zinc-900 border border-zinc-800 rounded-xl p-6 text-center shadow-2xl">
           <h2 className="text-white text-sm font-bold uppercase tracking-wider mb-2">Select User Account Identity</h2>
           <p className="text-zinc-500 text-[11px] mb-5">Choose a testing operator role card profile to access the workspace board metrics.</p>
           <div className="space-y-2">
@@ -639,9 +636,11 @@ export default function WarRoom() {
     );
   }
 
+  // Find dynamic layout accent context colors for the add task popup panel header decoration line
+  const activeColMeta = COLUMNS.find(c => c.id === addTaskStatus) || COLUMNS[0];
+
   return (
     <div ref={containerRef} onMouseMove={handleMouseMove} className="w-screen h-screen bg-zinc-950 text-zinc-100 p-4 md:p-6 lg:p-8 overflow-hidden font-sans relative flex flex-col">
-      
       <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-4 border-b border-zinc-900 pb-4 gap-4 shrink-0">
         <div>
           <div className="flex items-center gap-2">
@@ -668,13 +667,23 @@ export default function WarRoom() {
           const filteredTasks = tasks.filter((t) => t.status === col.id);
           return (
             <div key={col.id} onDragOver={(e) => e.preventDefault()} onDrop={(e) => handleDrop(e, col.id)} className={`bg-zinc-900/30 border ${col.border} rounded-xl p-4 flex flex-col h-full overflow-hidden ${activeMobileTab === col.id ? 'flex' : 'hidden sm:flex'}`}>
-              
               <div className="flex items-center justify-between mb-4 pb-2 border-b border-zinc-900/50 shrink-0">
                 <div className="flex items-center gap-2">
                   <span className={`w-1.5 h-3 ${col.accent} rounded-sm`} />
                   <h3 className="text-[11px] font-bold font-mono tracking-wider text-zinc-400 uppercase">{col.title} ({filteredTasks.length})</h3>
                 </div>
-                <button onClick={() => { setAddTaskStatus(col.id); setIsAddingTask(true); setNewTitle(''); setNewDesc(''); setNewEditStrategy('anyone'); setNewMoveStrategy('anyone'); setNewPermittedEditors([]); setNewPermittedMovers([]); setNewChecklist([]); setCreationChecklistInput(''); }} className="px-2 py-1 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-white font-mono text-[10px] uppercase rounded cursor-pointer">
+                <button onClick={() => {
+                  setAddTaskStatus(col.id);
+                  setIsAddingTask(true);
+                  setNewTitle('');
+                  setNewDesc('');
+                  setNewEditStrategy('anyone');
+                  setNewMoveStrategy('anyone');
+                  setNewPermittedEditors([]);
+                  setNewPermittedMovers([]);
+                  setNewChecklist([]);
+                  setCreationChecklistInput('');
+                }} className="px-2 py-1 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-white font-mono text-[10px] uppercase rounded cursor-pointer">
                   Add Task
                 </button>
               </div>
@@ -693,7 +702,6 @@ export default function WarRoom() {
 
                     return (
                       <div key={task.id} draggable={moveAllowed && !softLocked} onDragStart={(e) => handleDragStart(e, task)} className={`bg-zinc-900 border ${softLocked ? 'border-rose-900/40 opacity-70' : task.activeSession ? 'border-amber-500/50 shadow-lg shadow-amber-500/5' : 'border-zinc-800'} rounded-lg p-3 relative ${strategy.bgCard}`}>
-                        
                         {softLocked && (
                           <div className="absolute top-2 right-2 text-[9px] font-mono text-rose-400 bg-rose-950/40 border border-rose-900/50 px-1.5 py-0.5 rounded uppercase font-bold animate-pulse">Locked by {task.activeSession?.userName}</div>
                         )}
@@ -706,7 +714,6 @@ export default function WarRoom() {
                         <h4 className="text-xs font-bold text-zinc-100 uppercase tracking-tight truncate">{task.title}</h4>
                         {task.description && <p className="text-[11px] text-zinc-400 line-clamp-2 mt-1 leading-normal">{task.description}</p>}
 
-                        {/* Interactive Real-Time Activity Tracking module component */}
                         {task.activeSession && (
                           <div className="mt-3 p-2 bg-zinc-950/60 border border-zinc-800/80 rounded font-mono text-[10px] flex items-center justify-between">
                             <span className="text-amber-400 font-bold truncate max-w-[90px]">Active: {task.activeSession.userName}</span>
@@ -716,7 +723,6 @@ export default function WarRoom() {
                           </div>
                         )}
 
-                        {/* Interactive Task Checklist component sub-list */}
                         {task.checklist && task.checklist.length > 0 && (
                           <div className="mt-3 space-y-1 bg-zinc-950/30 p-1.5 rounded border border-zinc-900">
                             {task.checklist.map(item => (
@@ -728,7 +734,6 @@ export default function WarRoom() {
                           </div>
                         )}
 
-                        {/* Action buttons footer layout menu */}
                         <div className="mt-3 pt-2 border-t border-zinc-950 flex items-center justify-between gap-2 font-mono text-[10px]">
                           <div className="flex items-center gap-1">
                             {!task.activeSession ? (
@@ -741,12 +746,21 @@ export default function WarRoom() {
                             ) : null}
 
                             {editAllowed && !softLocked && (
-                              <button onClick={() => { setEditingTask(task); setEditTitle(task.title); setEditDesc(task.description || ''); setEditEditStrategy(task.editStrategy); setEditMoveStrategy(task.moveStrategy); setEditPermittedEditors(task.permittedEditors || []); setEditPermittedMovers(task.permittedMovers || []); setEditChecklist(task.checklist || []); setNewChecklistItemText(''); }} className="px-1.5 py-0.5 bg-zinc-900 text-zinc-400 hover:text-white border border-zinc-800 rounded text-[9px] uppercase cursor-pointer">Edit</button>
+                              <button onClick={() => {
+                                setEditingTask(task);
+                                setEditTitle(task.title);
+                                setEditDesc(task.description || '');
+                                setEditEditStrategy(task.editStrategy);
+                                setEditMoveStrategy(task.moveStrategy);
+                                setEditPermittedEditors(task.permittedEditors || []);
+                                setEditPermittedMovers(task.permittedMovers || []);
+                                setEditChecklist(task.checklist || []);
+                                setNewChecklistItemText('');
+                              }} className="px-1.5 py-0.5 bg-zinc-900 text-zinc-400 hover:text-white border border-zinc-800 rounded text-[9px] uppercase cursor-pointer">Edit</button>
                             )}
                           </div>
 
                           <div className="flex items-center gap-1">
-                            {/* Device-agnostic manual moving control fallback button menu */}
                             {moveAllowed && !softLocked && (
                               <div className="relative">
                                 <button onClick={() => setActiveMoveMenuId(activeMoveMenuId === task.id ? null : task.id)} className="px-1.5 py-0.5 bg-zinc-950 border border-zinc-800 text-zinc-300 rounded text-[9px] font-bold cursor-pointer uppercase">Move Column</button>
@@ -760,7 +774,6 @@ export default function WarRoom() {
                               </div>
                             )}
 
-                            {/* Permission-walled historic auditing and archiving block controls */}
                             {currentUser.role === 'admin' && (
                               <div className="flex items-center gap-1 bg-zinc-950/40 p-0.5 border border-zinc-800 rounded">
                                 <button onClick={() => setActiveHistoryTask(task)} className="px-1 py-0.5 bg-zinc-900 hover:bg-zinc-800 rounded text-[9px] text-zinc-400 hover:text-white cursor-pointer">View Logs</button>
@@ -783,93 +796,117 @@ export default function WarRoom() {
         })}
       </div>
 
-      {/* --- ADD TASK ACTION MODAL LAYOUT --- */}
+      {/* --- RE-STYLED ADD TASK ACTION MODAL LAYOUT --- */}
       {isAddingTask && (
-        <div className="fixed inset-0 bg-zinc-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 font-mono">
+        <div className="fixed inset-0 bg-zinc-950/80 backdrop-blur-md flex items-center justify-center p-4 z-50 font-mono">
           <div className="w-full max-w-lg bg-zinc-900 border border-zinc-800 rounded-xl p-5 shadow-2xl max-h-[85vh] overflow-y-auto minimal-scrollbar">
-            <h3 className="text-xs font-bold text-white uppercase tracking-wider mb-4 border-b border-zinc-800 pb-2">Create New Task</h3>
+            
+            {/* Header section decorated dynamically with the targeted column accent lines */}
+            <div className="flex items-center gap-2 mb-4 pb-2 border-b border-zinc-800/80">
+              <span className={`w-1.5 h-3.5 ${activeColMeta.accent} rounded-sm`} />
+              <h3 className="text-[11px] font-bold text-white uppercase tracking-wider">New Task &rarr; {activeColMeta.title}</h3>
+            </div>
+
             <div className="space-y-4 text-xs">
               <div>
-                <label className="block text-zinc-500 uppercase font-bold text-[9px] mb-1">Task Title</label>
-                <input type="text" value={newTitle} onChange={(e) => setNewTitle(e.target.value)} placeholder="Enter task title reference name..." className="w-full bg-zinc-950 border border-zinc-800 rounded px-2.5 py-1.5 text-zinc-200 outline-none" />
+                <label className="block text-zinc-500 uppercase font-bold text-[9px] mb-1">Title</label>
+                <input type="text" value={newTitle} onChange={(e) => setNewTitle(e.target.value)} placeholder="Task summary..." className="w-full bg-zinc-950 border border-zinc-800 rounded px-2.5 py-1.5 text-zinc-200 outline-none placeholder:text-zinc-700" />
               </div>
               <div>
-                <label className="block text-zinc-500 uppercase font-bold text-[9px] mb-1">Task Description</label>
-                <textarea rows={2} value={newDesc} onChange={(e) => setNewDesc(e.target.value)} placeholder="Provide short details regarding this task item..." className="w-full bg-zinc-950 border border-zinc-800 rounded px-2.5 py-1.5 text-zinc-200 outline-none resize-none" />
+                <label className="block text-zinc-500 uppercase font-bold text-[9px] mb-1">Description</label>
+                <textarea rows={2} value={newDesc} onChange={(e) => setNewDesc(e.target.value)} placeholder="Task details..." className="w-full bg-zinc-950 border border-zinc-800 rounded px-2.5 py-1.5 text-zinc-200 outline-none resize-none placeholder:text-zinc-700" />
               </div>
 
-              <div>
-                <label className="block text-zinc-500 uppercase font-bold text-[9px] mb-1">Task Checklist Items</label>
-                <div className="flex gap-2 mb-1.5">
-                  <input type="text" value={creationChecklistInput} onChange={(e) => setCreationChecklistInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && (setNewChecklist([...newChecklist, { id: Math.random().toString(), text: creationChecklistInput.trim(), isCompleted: false }]), setCreationChecklistInput(''))} placeholder="Enter a checklist requirement step item..." className="flex-1 bg-zinc-950 border border-zinc-800 rounded px-2.5 py-1.5 text-zinc-200 outline-none" />
-                  <button onClick={() => { if (creationChecklistInput.trim()) { setNewChecklist([...newChecklist, { id: Math.random().toString(), text: creationChecklistInput.trim(), isCompleted: false }]); setCreationChecklistInput(''); } }} className="px-3 bg-zinc-800 text-white rounded font-bold hover:bg-zinc-700 cursor-pointer">Add</button>
+              {/* Grid block grouping the editing and movement configuration rules safely */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-zinc-500 uppercase font-bold text-[9px] mb-1">Editing Access</label>
+                  <select value={newEditStrategy} onChange={(e) => setNewEditStrategy(e.target.value as AccessStrategy)} className="w-full bg-zinc-950 border border-zinc-800 rounded px-2 py-1.5 text-zinc-300 outline-none uppercase font-bold text-[10px]">
+                    <option value="anyone">Anyone</option>
+                    <option value="just-me">Just Me</option>
+                    <option value="custom">Custom Whitelist</option>
+                  </select>
                 </div>
+                <div>
+                  <label className="block text-zinc-500 uppercase font-bold text-[9px] mb-1">Moving Access</label>
+                  <select value={newMoveStrategy} onChange={(e) => setNewMoveStrategy(e.target.value as AccessStrategy)} className="w-full bg-zinc-950 border border-zinc-800 rounded px-2 py-1.5 text-zinc-300 outline-none uppercase font-bold text-[10px]">
+                    <option value="anyone">Anyone</option>
+                    <option value="just-me">Just Me</option>
+                    <option value="custom">Custom Whitelist</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Whitelist selection filters for Edit strategies */}
+              {newEditStrategy === 'custom' && (
+                <div className="p-2.5 bg-zinc-950/60 border border-zinc-800/80 rounded animate-fadeIn">
+                  <label className="block text-zinc-500 uppercase font-bold text-[8px] mb-1.5 tracking-wider">Permitted Editors Whitelist</label>
+                  <div className="flex flex-wrap gap-1.5">
+                    {TEST_USERS.map(u => (
+                      <button key={u.id} type="button" onClick={() => toggleSelectionUser(u.id, 'new-edit')} className={`px-2 py-1 border rounded text-[9px] font-bold transition-all ${newPermittedEditors.includes(u.id) ? 'bg-blue-950/40 text-blue-400 border-blue-800' : 'bg-zinc-900 text-zinc-500 border-zinc-800 hover:text-zinc-300'}`}>{u.name}</button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Whitelist selection filters for Move strategies */}
+              {newMoveStrategy === 'custom' && (
+                <div className="p-2.5 bg-zinc-950/60 border border-zinc-800/80 rounded animate-fadeIn">
+                  <label className="block text-zinc-500 uppercase font-bold text-[8px] mb-1.5 tracking-wider">Permitted Movers Whitelist</label>
+                  <div className="flex flex-wrap gap-1.5">
+                    {TEST_USERS.map(u => (
+                      <button key={u.id} type="button" onClick={() => toggleSelectionUser(u.id, 'new-move')} className={`px-2 py-1 border rounded text-[9px] font-bold transition-all ${newPermittedMovers.includes(u.id) ? 'bg-amber-950/40 text-amber-400 border-amber-800' : 'bg-zinc-900 text-zinc-500 border-zinc-800 hover:text-zinc-300'}`}>{u.name}</button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Checklist Builder Block Section */}
+              <div>
+                <label className="block text-zinc-500 uppercase font-bold text-[9px] mb-1">Checklist Items ({newChecklist.length})</label>
+                <div className="flex gap-2 mb-2">
+                  <input type="text" value={creationChecklistInput} onChange={(e) => setCreationChecklistInput(e.target.value)} onKeyDown={(e) => {
+                    if (e.key === 'Enter' && creationChecklistInput.trim()) {
+                      e.preventDefault();
+                      setNewChecklist([...newChecklist, { id: Math.random().toString(), text: creationChecklistInput.trim(), isCompleted: false }]);
+                      setCreationChecklistInput('');
+                    }
+                  }} placeholder="Add checklist target entry..." className="flex-1 bg-zinc-950 border border-zinc-800 rounded px-2.5 py-1 text-zinc-200 outline-none placeholder:text-zinc-700" />
+                  <button type="button" onClick={() => {
+                    if (!creationChecklistInput.trim()) return;
+                    setNewChecklist([...newChecklist, { id: Math.random().toString(), text: creationChecklistInput.trim(), isCompleted: false }]);
+                    setCreationChecklistInput('');
+                  }} className="px-3 bg-zinc-950 border border-zinc-800 text-zinc-400 hover:text-white rounded text-[10px] uppercase font-bold">&bull;&bull;&bull;</button>
+                </div>
+
                 {newChecklist.length > 0 && (
-                  <div className="bg-zinc-950 border border-zinc-800/60 rounded p-1.5 space-y-1 max-h-24 overflow-y-auto">
-                    {newChecklist.map((item, i) => (
-                      <div key={item.id} className="flex items-center justify-between text-[11px] text-zinc-400 bg-zinc-900/40 px-1.5 py-0.5 rounded">
-                        <span className="truncate">{i + 1}. {item.text}</span>
-                        <button onClick={() => setNewChecklist(newChecklist.filter(n => n.id !== item.id))} className="text-rose-500 font-bold hover:text-rose-400 cursor-pointer">Remove</button>
+                  <div className="max-h-24 overflow-y-auto space-y-1 bg-zinc-950/40 p-2 border border-zinc-800 rounded">
+                    {newChecklist.map((item, idx) => (
+                      <div key={item.id} className="flex items-center justify-between text-[10px] text-zinc-400 font-mono bg-zinc-900/50 px-2 py-1 rounded border border-zinc-950">
+                        <span className="truncate pr-2">{idx + 1}. {item.text}</span>
+                        <button type="button" onClick={() => setNewChecklist(newChecklist.filter(i => i.id !== item.id))} className="text-zinc-600 hover:text-rose-400 font-bold px-1">&times;</button>
                       </div>
                     ))}
                   </div>
                 )}
               </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-zinc-500 uppercase font-bold text-[9px] mb-1">Who can edit this task?</label>
-                  <select value={newEditStrategy} onChange={(e) => setNewEditStrategy(e.target.value as AccessStrategy)} className="w-full bg-zinc-950 border border-zinc-800 rounded px-2 py-1.5 text-zinc-200 outline-none">
-                    <option value="anyone">Anyone can edit</option>
-                    <option value="just-me">Only me</option>
-                    <option value="custom">Custom permissions</option>
-                  </select>
-                  {newEditStrategy === 'custom' && (
-                    <div className="mt-1.5 bg-zinc-950 border border-zinc-800 rounded p-1.5 space-y-1 max-h-20 overflow-y-auto">
-                      {TEST_USERS.map(u => (
-                        <label key={u.id} className="flex items-center gap-2 text-[10px] text-zinc-400">
-                          <input type="checkbox" checked={newPermittedEditors.includes(u.id)} onChange={() => toggleSelectionUser(u.id, 'new-edit')} className="rounded accent-zinc-700" />
-                          {u.name}
-                        </label>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                <div>
-                  <label className="block text-zinc-500 uppercase font-bold text-[9px] mb-1">Who can move this task?</label>
-                  <select value={newMoveStrategy} onChange={(e) => setNewMoveStrategy(e.target.value as AccessStrategy)} className="w-full bg-zinc-950 border border-zinc-800 rounded px-2 py-1.5 text-zinc-200 outline-none">
-                    <option value="anyone">Anyone can move</option>
-                    <option value="just-me">Only me</option>
-                    <option value="custom">Custom permissions</option>
-                  </select>
-                  {newMoveStrategy === 'custom' && (
-                    <div className="mt-1.5 bg-zinc-950 border border-zinc-800 rounded p-1.5 space-y-1 max-h-20 overflow-y-auto">
-                      {TEST_USERS.map(u => (
-                        <label key={u.id} className="flex items-center gap-2 text-[10px] text-zinc-400">
-                          <input type="checkbox" checked={newPermittedMovers.includes(u.id)} onChange={() => toggleSelectionUser(u.id, 'new-move')} className="rounded accent-zinc-700" />
-                          {u.name}
-                        </label>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              <div className="flex justify-end gap-2 pt-3 border-t border-zinc-800">
-                <button onClick={() => setIsAddingTask(false)} className="px-3 py-1.5 border border-zinc-800 text-zinc-400 rounded font-bold uppercase cursor-pointer">Cancel</button>
-                <button onClick={saveNewTask} className="px-4 py-1.5 bg-blue-600 text-white rounded font-bold uppercase cursor-pointer">Create Block</button>
-              </div>
             </div>
+
+            {/* Modal action button footers layout links */}
+            <div className="flex items-center justify-end gap-2 mt-5 pt-3 border-t border-zinc-800/80">
+              <button onClick={() => setIsAddingTask(false)} className="px-3 py-1.5 bg-zinc-950 border border-zinc-800 text-zinc-400 hover:text-zinc-200 rounded font-bold text-[10px] uppercase cursor-pointer">Cancel</button>
+              <button onClick={saveNewTask} disabled={!newTitle.trim()} className={`px-4 py-1.5 rounded font-bold text-[10px] uppercase border transition-all ${newTitle.trim() ? 'bg-zinc-100 text-zinc-950 hover:bg-white border-white cursor-pointer' : 'bg-zinc-800 text-zinc-600 border-zinc-800 cursor-not-allowed'}`}>Save Task</button>
+            </div>
+
           </div>
         </div>
       )}
 
-      {/* --- TASK EDIT MODAL CONFIGURATION WINDOW --- */}
+      {/* --- EDIT TASK DRAWER MODAL WINDOW --- */}
       {editingTask && (
         <div className="fixed inset-0 bg-zinc-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 font-mono">
           <div className="w-full max-w-lg bg-zinc-900 border border-zinc-800 rounded-xl p-5 shadow-2xl max-h-[85vh] overflow-y-auto minimal-scrollbar">
-            <h3 className="text-xs font-bold text-white uppercase tracking-wider mb-4 border-b border-zinc-800 pb-2">Edit Task Properties</h3>
+            <h3 className="text-[11px] font-bold text-white uppercase tracking-wider mb-4 border-b border-zinc-800 pb-2">Modify Task Settings</h3>
             <div className="space-y-4 text-xs">
               <div>
                 <label className="block text-zinc-500 uppercase font-bold text-[9px] mb-1">Task Title</label>
@@ -880,110 +917,131 @@ export default function WarRoom() {
                 <textarea rows={2} value={editDesc} onChange={(e) => setEditDesc(e.target.value)} className="w-full bg-zinc-950 border border-zinc-800 rounded px-2.5 py-1.5 text-zinc-200 outline-none resize-none" />
               </div>
 
-              <div>
-                <label className="block text-zinc-500 uppercase font-bold text-[9px] mb-1">Edit Task Checklist Items</label>
-                <div className="flex gap-2 mb-2">
-                  <input type="text" value={newChecklistItemText} onChange={(e) => setNewChecklistItemText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && (setEditChecklist([...editChecklist, { id: Math.random().toString(), text: newChecklistItemText.trim(), isCompleted: false }]), setNewChecklistItemText(''))} placeholder="Append checklist item rule..." className="flex-1 bg-zinc-950 border border-zinc-800 rounded px-2.5 py-1.5 text-zinc-200 outline-none" />
-                  <button onClick={() => { if (newChecklistItemText.trim()) { setEditChecklist([...editChecklist, { id: Math.random().toString(), text: newChecklistItemText.trim(), isCompleted: false }]); setNewChecklistItemText(''); } }} className="px-3 bg-zinc-800 text-white rounded font-bold hover:bg-zinc-700 cursor-pointer">Add</button>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-zinc-500 uppercase font-bold text-[9px] mb-1">Edit Strategy Rule</label>
+                  <select value={editEditStrategy} onChange={(e) => setEditEditStrategy(e.target.value as AccessStrategy)} className="w-full bg-zinc-950 border border-zinc-800 rounded px-2 py-1.5 text-zinc-300 outline-none uppercase font-bold text-[10px]">
+                    <option value="anyone">Anyone</option>
+                    <option value="just-me">Just Me</option>
+                    <option value="custom">Custom Whitelist</option>
+                  </select>
                 </div>
-                <div className="bg-zinc-950 border border-zinc-800 rounded p-1.5 space-y-1 max-h-24 overflow-y-auto">
+                <div>
+                  <label className="block text-zinc-500 uppercase font-bold text-[9px] mb-1">Move Strategy Rule</label>
+                  <select value={editMoveStrategy} onChange={(e) => setEditMoveStrategy(e.target.value as AccessStrategy)} className="w-full bg-zinc-950 border border-zinc-800 rounded px-2 py-1.5 text-zinc-300 outline-none uppercase font-bold text-[10px]">
+                    <option value="anyone">Anyone</option>
+                    <option value="just-me">Just Me</option>
+                    <option value="custom">Custom Whitelist</option>
+                  </select>
+                </div>
+              </div>
+
+              {editEditStrategy === 'custom' && (
+                <div className="p-2 bg-zinc-950 rounded border border-zinc-800">
+                  <label className="block text-zinc-500 uppercase font-bold text-[8px] mb-1">Permitted Editors Whitelist</label>
+                  <div className="flex flex-wrap gap-1">
+                    {TEST_USERS.map(u => (
+                      <button key={u.id} type="button" onClick={() => toggleSelectionUser(u.id, 'edit-edit')} className={`px-2 py-0.5 border rounded text-[9px] ${editPermittedEditors.includes(u.id) ? 'bg-blue-950 text-blue-400 border-blue-900' : 'bg-zinc-900 text-zinc-500 border-zinc-800'}`}>{u.name}</button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {editMoveStrategy === 'custom' && (
+                <div className="p-2 bg-zinc-950 rounded border border-zinc-800">
+                  <label className="block text-zinc-500 uppercase font-bold text-[8px] mb-1">Permitted Movers Whitelist</label>
+                  <div className="flex flex-wrap gap-1">
+                    {TEST_USERS.map(u => (
+                      <button key={u.id} type="button" onClick={() => toggleSelectionUser(u.id, 'edit-move')} className={`px-2 py-0.5 border rounded text-[9px] ${editPermittedMovers.includes(u.id) ? 'bg-amber-950 text-amber-400 border-amber-900' : 'bg-zinc-900 text-zinc-500 border-zinc-800'}`}>{u.name}</button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div>
+                <label className="block text-zinc-500 uppercase font-bold text-[9px] mb-1">Task Checklist Node Entries</label>
+                <div className="flex gap-2 mb-2">
+                  <input type="text" value={newChecklistItemText} onChange={(e) => setNewChecklistItemText(e.target.value)} placeholder="Append checklist criteria line..." className="flex-1 bg-zinc-950 border border-zinc-800 rounded px-2 py-1 text-zinc-200 outline-none" />
+                  <button type="button" onClick={() => {
+                    if (!newChecklistItemText.trim()) return;
+                    setEditChecklist([...editChecklist, { id: Math.random().toString(), text: newChecklistItemText.trim(), isCompleted: false }]);
+                    setNewChecklistItemText('');
+                  }} className="px-2 bg-zinc-950 border border-zinc-800 text-zinc-400 hover:text-white rounded text-[10px] uppercase font-bold">Add</button>
+                </div>
+                <div className="space-y-1 max-h-32 overflow-y-auto">
                   {editChecklist.map(item => (
-                    <div key={item.id} className="flex items-center justify-between bg-zinc-900/60 border border-zinc-800/40 rounded px-2 py-0.5">
-                      <span className={`truncate text-zinc-300 ${item.isCompleted ? 'line-through text-zinc-600' : ''}`}>{item.text}</span>
-                      <button onClick={() => setEditChecklist(editChecklist.filter(c => c.id !== item.id))} className="text-rose-500 font-bold uppercase hover:text-rose-400 ml-2 cursor-pointer">Remove</button>
+                    <div key={item.id} className="flex items-center justify-between text-[10px] bg-zinc-950 px-2 py-1 rounded border border-zinc-800">
+                      <span className={item.isCompleted ? 'line-through text-zinc-600' : 'text-zinc-300'}>{item.text}</span>
+                      <button type="button" onClick={() => setEditChecklist(editChecklist.filter(i => i.id !== item.id))} className="text-rose-400 hover:text-rose-300 font-bold px-1">&times;</button>
                     </div>
                   ))}
                 </div>
               </div>
+            </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-zinc-500 uppercase font-bold text-[9px] mb-1">Edit Access Strategy</label>
-                  <select value={editEditStrategy} onChange={(e) => setEditEditStrategy(e.target.value as AccessStrategy)} className="w-full bg-zinc-950 border border-zinc-800 rounded px-2 py-1.5 text-zinc-200 outline-none">
-                    <option value="anyone">Anyone can edit</option>
-                    <option value="just-me">Creator private lock</option>
-                    <option value="custom">Custom allocation profile</option>
-                  </select>
-                  {editEditStrategy === 'custom' && (
-                    <div className="mt-1.5 bg-zinc-950 border border-zinc-800 rounded p-1.5 space-y-1 max-h-20 overflow-y-auto">
-                      {TEST_USERS.map(u => (
-                        <label key={u.id} className="flex items-center gap-2 text-[10px] text-zinc-400">
-                          <input type="checkbox" checked={editPermittedEditors.includes(u.id)} onChange={() => toggleSelectionUser(u.id, 'edit-edit')} className="rounded" />
-                          {u.name}
-                        </label>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                <div>
-                  <label className="block text-zinc-500 uppercase font-bold text-[9px] mb-1">Move Access Strategy</label>
-                  <select value={editMoveStrategy} onChange={(e) => setEditMoveStrategy(e.target.value as AccessStrategy)} className="w-full bg-zinc-950 border border-zinc-800 rounded px-2 py-1.5 text-zinc-200 outline-none">
-                    <option value="anyone">Anyone can move</option>
-                    <option value="just-me">Creator private lock</option>
-                    <option value="custom">Custom allocation profile</option>
-                  </select>
-                  {editMoveStrategy === 'custom' && (
-                    <div className="mt-1.5 bg-zinc-950 border border-zinc-800 rounded p-1.5 space-y-1 max-h-20 overflow-y-auto">
-                      {TEST_USERS.map(u => (
-                        <label key={u.id} className="flex items-center gap-2 text-[10px] text-zinc-400">
-                          <input type="checkbox" checked={editPermittedMovers.includes(u.id)} onChange={() => toggleSelectionUser(u.id, 'edit-move')} className="rounded" />
-                          {u.name}
-                        </label>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              <div className="flex justify-end gap-2 pt-3 border-t border-zinc-800">
-                <button onClick={() => setEditingTask(null)} className="px-3 py-1.5 border border-zinc-800 text-zinc-400 rounded font-bold uppercase cursor-pointer">Cancel</button>
-                <button onClick={saveEditedTask} className="px-4 py-1.5 bg-rose-600 text-white rounded font-bold uppercase cursor-pointer">Save Changes</button>
-              </div>
+            <div className="flex items-center justify-end gap-2 mt-4 pt-2 border-t border-zinc-800">
+              <button onClick={() => setEditingTask(null)} className="px-3 py-1.5 bg-zinc-950 border border-zinc-800 text-zinc-400 hover:text-zinc-200 rounded text-[10px] uppercase cursor-pointer">Close</button>
+              <button onClick={saveEditedTask} className="px-4 py-1.5 bg-zinc-100 text-zinc-950 hover:bg-white rounded font-bold text-[10px] uppercase cursor-pointer">Apply Changes</button>
             </div>
           </div>
         </div>
       )}
 
-      {/* --- SYSTEM LOGS ARCHIVE SIDEBAR PANEL --- */}
-      {activeHistoryTask && currentUser.role === 'admin' && (
-        <div className="fixed inset-0 bg-zinc-950/80 backdrop-blur-sm flex justify-end z-50 font-mono">
-          <div className="w-full max-w-sm bg-zinc-900 border-l border-zinc-800 p-5 flex flex-col h-full shadow-2xl overflow-hidden">
-            <div className="flex items-center justify-between pb-3 border-b border-zinc-800 shrink-0">
-              <h3 className="text-xs font-bold text-white uppercase tracking-wider">Task Change Logs</h3>
-              <button onClick={() => setActiveHistoryTask(null)} className="text-zinc-500 hover:text-zinc-300 font-bold uppercase text-[10px] cursor-pointer">Close</button>
-            </div>
-            <div className="flex-1 overflow-y-auto py-3 space-y-3 text-[10px] minimal-scrollbar">
-              {activeHistoryTask.history && activeHistoryTask.history.length > 0 ? (
-                activeHistoryTask.history.map((log, idx) => (
-                  <div key={idx} className="bg-zinc-950/60 border border-zinc-800 p-2.5 rounded">
-                    <div className="text-zinc-500 text-[9px] mb-1">{new Date(log.timestamp).toLocaleString()}</div>
-                    <div className="text-zinc-200 font-bold">User: {log.movedBy}</div>
-                    <div className="text-zinc-400 mt-1 leading-normal text-[9px] bg-zinc-900 p-1.5 rounded border border-zinc-800/40">{log.notes || 'Task update registered.'}</div>
-                  </div>
-                ))
-              ) : (
-                <div className="text-zinc-600 text-center py-10 text-[9px]">No history events logged for this task item.</div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* --- HANDOFF RELEASE TASK OVERLAY PANEL --- */}
+      {/* --- HANDOFF RELEASE FLOW DIALOG WINDOW --- */}
       {handoffTask && (
         <div className="fixed inset-0 bg-zinc-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 font-mono">
-          <div className="w-full max-w-sm bg-zinc-900 border border-zinc-800 rounded-lg p-5 shadow-2xl">
-            <h3 className="text-xs font-bold uppercase text-white mb-1">Release Active Task Session</h3>
-            <p className="text-[11px] text-zinc-400 mb-3 leading-normal">Provide optional notes before unlocking this item for other team members.</p>
-            <textarea rows={2} value={handoffNotes} onChange={(e) => setHandoffNotes(e.target.value)} placeholder="Enter handoff or summary notes here..." className="w-full bg-zinc-950 border border-zinc-800 rounded p-2 text-xs text-zinc-200 outline-none resize-none mb-3" />
-            <div className="flex justify-end gap-2 text-[10px]">
-              <button onClick={() => setHandoffTask(null)} className="px-3 py-1.5 border border-zinc-800 text-zinc-400 rounded font-bold uppercase cursor-pointer">Cancel</button>
-              <button onClick={commitReleaseHandoff} className="px-3 py-1.5 bg-amber-500 text-zinc-950 font-bold rounded uppercase cursor-pointer">Release Task</button>
+          <div className="w-full max-w-sm bg-zinc-900 border border-zinc-800 rounded-xl p-5 shadow-2xl">
+            <h3 className="text-[11px] font-bold text-white uppercase tracking-wider mb-2">Release Workspace Token</h3>
+            <p className="text-zinc-500 text-[10px] mb-4">Provide clear handover summary parameters before abandoning the active testing operations cycle context.</p>
+            <div className="space-y-3">
+              <textarea rows={3} value={handoffNotes} onChange={(e) => setHandoffNotes(e.target.value)} placeholder="Provide optional notes..." className="w-full bg-zinc-950 border border-zinc-800 rounded px-2.5 py-1.5 text-zinc-200 text-xs outline-none resize-none" />
+              <div className="flex items-center justify-end gap-2">
+                <button onClick={() => setHandoffTask(null)} className="px-3 py-1.5 bg-zinc-950 border border-zinc-800 text-zinc-400 hover:text-white rounded text-[9px] uppercase cursor-pointer">Cancel</button>
+                <button onClick={commitReleaseHandoff} className="px-3 py-1.5 bg-amber-500 text-zinc-950 font-bold hover:bg-amber-400 rounded text-[9px] uppercase cursor-pointer">Confirm Release</button>
+              </div>
             </div>
           </div>
         </div>
       )}
+
+      {/* --- AUDITING TRANSACTION HISTORY LOG MODAL WINDOW --- */}
+      {activeHistoryTask && (
+        <div className="fixed inset-0 bg-zinc-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 font-mono">
+          <div className="w-full max-w-md bg-zinc-900 border border-zinc-800 rounded-xl p-5 shadow-2xl max-h-[80vh] flex flex-col overflow-hidden">
+            <h3 className="text-[11px] font-bold text-white uppercase tracking-wider mb-2 shrink-0">Security Audit Transaction History Ledger</h3>
+            <p className="text-zinc-500 text-[10px] mb-4 shrink-0">Historic ledger trace logs for task reference: <span className="text-zinc-300 font-bold">{activeHistoryTask.title}</span></p>
+            
+            <div className="flex-1 overflow-y-auto space-y-2 pr-1 minimal-scrollbar">
+              {(!activeHistoryTask.history || activeHistoryTask.history.length === 0) ? (
+                <div className="text-center py-6 text-zinc-600 text-[10px]">No historic entries located within database memory ledger store</div>
+              ) : (
+                activeHistoryTask.history.map((log, idx) => (
+                  <div key={idx} className="p-2 bg-zinc-950 rounded border border-zinc-800 text-[10px]">
+                    <div className="flex justify-between text-zinc-500 font-bold text-[9px] mb-1">
+                      <span>Operator: {log.movedBy}</span>
+                      <span>{log.timestamp ? new Date(log.timestamp).toLocaleTimeString() : 'Unknown Time'}</span>
+                    </div>
+                    {log.actionType && <div className="text-blue-400 font-bold text-[9px] uppercase mb-0.5">Action: {log.actionType}</div>}
+                    <p className="text-zinc-400 font-mono leading-relaxed">{log.notes || 'No contextual telemetry notes appended to this action row.'}</p>
+                  </div>
+                ))
+              )}
+            </div>
+            
+            <button onClick={() => setActiveHistoryTask(null)} className="mt-4 w-full py-1.5 bg-zinc-950 hover:bg-zinc-800 text-zinc-400 hover:text-white border border-zinc-800 rounded text-[10px] uppercase font-bold cursor-pointer shrink-0">Dismiss View Ledger</button>
+          </div>
+        </div>
+      )}
+
+      {/* Dynamic Cursor Telemetry presence map tracker overlay layout */}
+      {mounted && Object.values(presences).map((p) => {
+        if (!p || p.id === currentUser.id) return null;
+        return (
+          <div key={p.id} className="absolute pointer-events-none transition-all duration-75 z-50 text-[9px] font-mono font-bold uppercase tracking-tighter shadow-lg rounded px-1.5 py-0.5 text-white" style={{ left: `${p.x}%`, top: `${p.y}%`, backgroundColor: p.color }}>
+            &bull; {p.name}
+          </div>
+        );
+      })}
 
     </div>
   );
