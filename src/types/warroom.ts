@@ -38,6 +38,8 @@ export interface Task {
   description?: string;
   status: TaskStatus;
   position: number;
+  priority?: 'low' | 'medium' | 'high' | 'critical'; // Added for DEFCON
+  deadline?: string; // Added for DEFCON
   createdBy: string;
   createdByName: string;
   lastMovedBy?: string;
@@ -66,10 +68,6 @@ export interface UserPresence {
   y: number;
 }
 
-export interface BroadcastPayload {
-  type: 'cursor';
-  userId: string;
-  userName: string;
-  color: string;
-  payload: { x: number; y: number };
-}
+export type BroadcastPayload = 
+  | { type: 'cursor'; userId: string; userName: string; color: string; payload: { x: number; y: number } }
+  | { type: 'defcon'; userId: string; userName: string; payload: { level: number } };

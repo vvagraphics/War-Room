@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { createClient } from '@supabase/supabase-js';
-import { Task, TaskStatus, AccessStrategy, Profile, UserPresence, BroadcastPayload, AuditLog, ChecklistItem } from '@/types/warroom';
+import { Task, TaskStatus, AccessStrategy, Profile, UserPresence, BroadcastPayload, AuditLog, ChecklistItem } from '@/src/types/warroom';
 
 // --- TYPES & INTERFACES ---
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
@@ -41,12 +41,16 @@ const STRATEGY_THEMES: Record<AccessStrategy, { text: string; bgCard: string }> 
 
 export default function WarRoom() {
   // --- STATE & INITIALIZATION ---
+  
   const [mounted, setMounted] = useState<boolean>(false);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [presences, setPresences] = useState<Record<string, UserPresence>>({});
   const [currentUser, setCurrentUser] = useState<Profile | null>(null);
   const [timeTicker, setTimeTicker] = useState<number>(Date.now());
   const [savedTasks, setSavedTasks] = useState<Record<string, boolean>>({});
+
+  // Global DEFCON State
+  const [defconLevel, setDefconLevel] = useState<number>(5);
 
   // Mobile / Screen View Controls
   const [activeMobileTab, setActiveMobileTab] = useState<TaskStatus>('todo');
@@ -129,18 +133,20 @@ export default function WarRoom() {
     const supabase = getSupabase();
     if (!supabase) return;
 
+    // 1. Add { data: any, error: any } to the .then() block
     supabase
       .from('tasks')
       .select('*')
       .order('position', { ascending: true })
-      .then(({ data, error }) => {
+      .then(({ data, error }: { data: any, error: any }) => {
         if (error) console.error('Error fetching database items:', error);
         if (data) setTasks(data.map(normalizeTaskPayload));
       });
 
+    // 2. Add (payload: any) to the postgres_changes listener
     const dbChannel = supabase
       .channel('tasks-realtime-sync')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, (payload) => {
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, (payload: any) => {
         if (payload.eventType === 'INSERT') {
           const newTask = normalizeTaskPayload(payload.new);
           setTasks((prev) => {
@@ -150,12 +156,12 @@ export default function WarRoom() {
         } else if (payload.eventType === 'UPDATE') {
           const updatedTask = normalizeTaskPayload(payload.new);
           setTasks((prev) => prev.map((t) => (t.id === updatedTask.id ? updatedTask : t)).sort((a, b) => a.position - b.position));
-          setActiveHistoryTask((current) => current && current.id === updatedTask.id ? updatedTask : current);
+          setActiveHistoryTask((current: Task | null) => current && current.id === updatedTask.id ? updatedTask : current);
         } else if (payload.eventType === 'DELETE') {
           const deletedId = payload.old?.id?.toString();
           if (deletedId) {
             setTasks((prev) => prev.filter((t) => t.id !== deletedId));
-            setActiveHistoryTask((current) => current && current.id === deletedId ? null : current);
+            setActiveHistoryTask((current: Task | null) => current && current.id === deletedId ? null : current);
           }
         }
       })
@@ -175,6 +181,11 @@ export default function WarRoom() {
               y: payload.payload.y,
             }
           }));
+        } else if (payload.type === 'defcon') {
+          setDefconLevel(payload.payload.level);
+          if (payload.payload.level === 1) {
+            triggerNativeAlarmNotification(); // Play the alarm if someone triggers DEFCON 1
+          }
         }
       })
       .subscribe();
@@ -246,21 +257,25 @@ export default function WarRoom() {
           const contextAge = now - lastCheckIn;
 
           if (contextAge > testingTimeoutThreshold) {
-            const systemLog: AuditLog = {
-              movedBy: 'System Auto-Drop',
-              fromStatus: task.status,
-              toStatus: task.status,
-              timestamp: new Date().toISOString(),
-              actionType: 'timeout_recovery',
-              notes: `Time limit exceeded. Session cleared for user ${task.activeSession.userName}.`
-            };
-            await supabase
-              .from('tasks')
-              .update({
-                active_session: null,
-                history: [systemLog, ...(task.history || [])]
-              })
-              .eq('id', parseInt(task.id, 10));
+            // FIX: Only Admins are authorized to sweep the database for dead locks
+            // This prevents 5 clients from trying to clear the lock simultaneously
+            if (currentUser.role === 'admin') {
+              const systemLog: AuditLog = {
+                movedBy: 'System Auto-Drop',
+                fromStatus: task.status,
+                toStatus: task.status,
+                timestamp: new Date().toISOString(),
+                actionType: 'timeout_recovery',
+                notes: `Time limit exceeded. Session cleared for user ${task.activeSession.userName}.`
+              };
+              await supabase
+                .from('tasks')
+                .update({
+                  active_session: null,
+                  history: [systemLog, ...(task.history || [])]
+                })
+                .eq('id', parseInt(task.id, 10));
+            }
           } else if (task.activeSession.userId === currentUser.id && (testingTimeoutThreshold - contextAge) <= warningAudioHorizon) {
             playWarningBeep = true;
           }
@@ -352,6 +367,26 @@ export default function WarRoom() {
         }
       },
     });
+  };
+
+  //send the DEFCON signal
+  const executeDefconChange = (level: number) => {
+    if (!currentUser || currentUser.role !== 'admin' || !interactionChannelRef.current) return;
+    setDefconLevel(level); // Update locally
+    
+    // Broadcast to everyone else
+    interactionChannelRef.current.send({
+      type: 'broadcast',
+      event: 'ui-event',
+      payload: {
+        type: 'defcon',
+        userId: currentUser.id,
+        userName: currentUser.name,
+        payload: { level }
+      },
+    });
+
+    if (level === 1) triggerNativeAlarmNotification();
   };
 
   const handleDragStart = (e: React.DragEvent, task: Task) => {
@@ -570,7 +605,8 @@ export default function WarRoom() {
     let fileOutputString = `==================================================\n`;
     fileOutputString += `TASK ACTION LOG REPORT: ${task.title}\n`;
     fileOutputString += `==================================================\n`;
-    task.history.forEach((log, idx) => {
+    
+    task.history.forEach((log: AuditLog, idx: number) => {
       fileOutputString += `[${log.timestamp}] User: ${log.movedBy} | Action: ${log.actionType || 'Log'}\nNotes: ${log.notes || 'None'}\n\n`;
     });
 
@@ -706,7 +742,7 @@ export default function WarRoom() {
                 type="button"
                 onClick={() => {
                   if (!creationChecklistInput.trim()) return;
-                  setNewChecklist([...newChecklist, { id: crypto.randomUUID(), text: creationChecklistInput.trim(), checked: false }]);
+                  setNewChecklist([...newChecklist, { id: crypto.randomUUID(), text: creationChecklistInput.trim(), isCompleted: false }]);
                   setCreationChecklistInput('');
                 }}
                 className="px-3 bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white rounded uppercase text-[9px] font-bold transition-colors"
@@ -738,11 +774,11 @@ export default function WarRoom() {
           <div>
             <label className="block text-zinc-500 uppercase font-bold tracking-wider mb-1">Edit Access Strategy</label>
             <div className="hidden sm:flex gap-1">
-              {(['anyone', 'creator', 'custom'] as AccessStrategy[]).map((strat) => {
+              {(['anyone', 'just-me', 'custom'] as AccessStrategy[]).map((strat) => {
                 const isActive = newEditStrategy === strat;
                 let theme = '';
                 if (strat === 'anyone') theme = isActive ? 'bg-blue-950/60 text-blue-400 border-blue-800/80 shadow-[0_0_8px_rgba(59,130,246,0.15)]' : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:text-zinc-400';
-                if (strat === 'creator') theme = isActive ? 'bg-amber-950/60 text-amber-400 border-amber-800/80 shadow-[0_0_8px_rgba(245,158,11,0.15)]' : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:text-zinc-400';
+                if (strat === 'just-me') theme = isActive ? 'bg-amber-950/60 text-amber-400 border-amber-800/80 shadow-[0_0_8px_rgba(245,158,11,0.15)]' : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:text-zinc-400';
                 if (strat === 'custom') theme = isActive ? 'bg-rose-950/60 text-rose-400 border-rose-800/80 shadow-[0_0_8px_rgba(244,63,94,0.15)]' : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:text-zinc-400';
                 
                 return (
@@ -752,7 +788,7 @@ export default function WarRoom() {
                     onClick={() => setNewEditStrategy(strat)}
                     className={`flex-1 py-1.5 px-1 border rounded text-[9px] font-bold uppercase transition-all duration-150 ${theme}`}
                   >
-                    {strat === 'anyone' ? 'Anyone' : strat === 'creator' ? 'Creator' : 'Custom'}
+                    {strat === 'anyone' ? 'Anyone' : strat === 'just-me' ? 'Creator' : 'Custom'}
                   </button>
                 );
               })}
@@ -763,7 +799,7 @@ export default function WarRoom() {
               className="sm:hidden w-full bg-zinc-900 border border-zinc-800 rounded p-1.5 text-zinc-400 focus:outline-none uppercase font-bold"
             >
               <option value="anyone">Anyone</option>
-              <option value="creator">Creator Only</option>
+              <option value="just-me">Creator Only</option>
               <option value="custom">Custom Operators</option>
             </select>
           </div>
@@ -808,11 +844,11 @@ export default function WarRoom() {
           <div>
             <label className="block text-zinc-500 uppercase font-bold tracking-wider mb-1">Move Access Strategy</label>
             <div className="hidden sm:flex gap-1">
-              {(['anyone', 'creator', 'custom'] as AccessStrategy[]).map((strat) => {
+              {(['anyone', 'just-me', 'custom'] as AccessStrategy[]).map((strat) => {
                 const isActive = newMoveStrategy === strat;
                 let theme = '';
                 if (strat === 'anyone') theme = isActive ? 'bg-blue-950/60 text-blue-400 border-blue-800/80 shadow-[0_0_8px_rgba(59,130,246,0.15)]' : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:text-zinc-400';
-                if (strat === 'creator') theme = isActive ? 'bg-amber-950/60 text-amber-400 border-amber-800/80 shadow-[0_0_8px_rgba(245,158,11,0.15)]' : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:text-zinc-400';
+                if (strat === 'just-me') theme = isActive ? 'bg-amber-950/60 text-amber-400 border-amber-800/80 shadow-[0_0_8px_rgba(245,158,11,0.15)]' : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:text-zinc-400';
                 if (strat === 'custom') theme = isActive ? 'bg-rose-950/60 text-rose-400 border-rose-800/80 shadow-[0_0_8px_rgba(244,63,94,0.15)]' : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:text-zinc-400';
                 
                 return (
@@ -822,7 +858,7 @@ export default function WarRoom() {
                     onClick={() => setNewMoveStrategy(strat)}
                     className={`flex-1 py-1.5 px-1 border rounded text-[9px] font-bold uppercase transition-all duration-150 ${theme}`}
                   >
-                    {strat === 'anyone' ? 'Anyone' : strat === 'creator' ? 'Creator' : 'Custom'}
+                    {strat === 'anyone' ? 'Anyone' : strat === 'just-me' ? 'Creator' : 'Custom'}
                   </button>
                 );
               })}
@@ -833,7 +869,7 @@ export default function WarRoom() {
               className="sm:hidden w-full bg-zinc-900 border border-zinc-800 rounded p-1.5 text-zinc-400 focus:outline-none uppercase font-bold"
             >
               <option value="anyone">Anyone</option>
-              <option value="creator">Creator Only</option>
+              <option value="just-me">Creator Only</option>
               <option value="custom">Custom Operators</option>
             </select>
           </div>
@@ -902,14 +938,36 @@ export default function WarRoom() {
   
 
   return (
-    <div ref={containerRef} onMouseMove={handleMouseMove} className="w-screen h-screen bg-zinc-950 text-zinc-100 p-4 md:p-6 lg:p-8 overflow-hidden font-sans relative flex flex-col">
+    <div ref={containerRef} onMouseMove={handleMouseMove} className={`w-screen h-screen transition-colors duration-1000 ${defconLevel === 1 ? 'bg-rose-950/80 shadow-[inset_0_0_150px_rgba(225,29,72,0.2)]' : 'bg-zinc-950'} text-zinc-100 p-4 md:p-6 lg:p-8 overflow-hidden font-sans relative flex flex-col`}>
       <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-4 border-b border-zinc-900 pb-4 gap-4 shrink-0">
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-sm font-black tracking-wider text-white uppercase">War Room</h1>
             <span className="text-[9px] bg-blue-500/10 text-blue-400 border border-blue-500/20 px-2 py-0.5 rounded-full font-mono font-bold">V1.0.8</span>
           </div>
-          <p className="text-[11px] text-zinc-500 font-mono mt-0.5">Logged in as: <span className="text-zinc-300 font-bold">{currentUser.name} ({currentUser.role.toUpperCase()})</span></p>
+          <p className="text-[11px] text-zinc-500 font-mono mt-0.5">Logged in as:{/* DEFCON CONTROL PANEL (Admins Only) */}
+        {currentUser.role === 'admin' && (
+          <div className="hidden sm:flex items-center gap-1 bg-zinc-900 border border-zinc-800 p-1.5 rounded-lg ml-4">
+            <span className="text-[10px] uppercase font-black tracking-widest text-zinc-500 px-2">DEFCON</span>
+            {[5, 4, 3, 2, 1].map(level => {
+              const isActive = defconLevel === level;
+              const isD1 = level === 1;
+              return (
+                <button
+                  key={level}
+                  onClick={() => executeDefconChange(level)}
+                  className={`w-7 h-7 rounded text-[11px] font-black transition-all cursor-pointer ${
+                    isActive 
+                      ? (isD1 ? 'bg-rose-600 text-white shadow-[0_0_15px_rgba(225,29,72,0.6)] animate-pulse' : 'bg-zinc-200 text-zinc-900') 
+                      : 'bg-zinc-950 text-zinc-500 hover:bg-zinc-800'
+                  }`}
+                >
+                  {level}
+                </button>
+              );
+            })}
+          </div>
+        )} <span className="text-zinc-300 font-bold">{currentUser.name} ({currentUser.role.toUpperCase()})</span></p>
         </div>
         <button onClick={() => setCurrentUser(null)} className="px-3 py-1.5 bg-zinc-900 border border-zinc-800 text-zinc-400 font-mono text-[10px] hover:text-white rounded self-start sm:self-auto cursor-pointer">Switch Account</button>
       </header>
@@ -987,8 +1045,9 @@ export default function WarRoom() {
 
                         {task.checklist && task.checklist.length > 0 && (
                           <div className="mt-3 space-y-1 bg-zinc-950/30 p-1.5 rounded border border-zinc-900">
-                            {task.checklist.map(item => (
-                              <button key={item.id} onClick={() => toggleChecklistItem(task, item.id)} disabled={softLocked} className="w-full flex items-center gap-2 text-left text-[10px] font-mono text-zinc-400 hover:text-zinc-200">
+                            
+    {task.checklist.map((item: ChecklistItem) => (
+      <button key={item.id} onClick={() => toggleChecklistItem(task, item.id)} disabled={softLocked} className="w-full flex items-center gap-2 text-left text-[10px] font-mono text-zinc-400 hover:text-zinc-200">
                                 <span className={`w-2.5 h-2.5 border rounded-sm flex items-center justify-center text-[7px] font-black ${item.isCompleted ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400' : 'border-zinc-800 bg-zinc-900'}`}>{item.isCompleted ? '✓' : ''}</span>
                                 <span className={`truncate ${item.isCompleted ? 'line-through text-zinc-600' : ''}`}>{item.text}</span>
                               </button>
@@ -1077,256 +1136,84 @@ export default function WarRoom() {
 
       {/* --- RE-STYLED ADD TASK ACTION MODAL LAYOUT --- */}
       {/* GLOBAL ADD TASK MODAL OVERLAY PORTAL */}
-  {isAddingTask && (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm font-mono animate-fadeIn">
-      <div className="w-full max-w-md bg-zinc-950 border border-zinc-800 rounded-xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
-        
-        {/* Dynamic header colored border band accent tracker */}
-        <div className={`h-1 w-full ${activeColMeta.accent}`} />
-        
-        <div className="p-4 border-b border-zinc-900 flex justify-between items-center bg-zinc-900/20">
-          <div>
-            <h3 className="text-xs font-black text-white uppercase tracking-wider">Initialize Task Node</h3>
-            <p className="text-[9px] text-zinc-500 uppercase mt-0.5">Appending into target column queue: <span className="text-zinc-400 font-bold">{activeColMeta.title}</span></p>
-          </div>
-          <button 
-            onClick={() => setIsAddingTask(false)}
-            className="text-zinc-500 hover:text-white text-xs font-bold p-1 uppercase"
-          >
-            ✕
-          </button>
-        </div>
-
-        <div className="p-4 overflow-y-auto space-y-4 text-[10px]">
-          <div>
-            <label className="block text-zinc-500 uppercase font-bold tracking-wider mb-1">Task Title</label>
-            <input
-              type="text"
-              placeholder="Task Title..."
-              value={newTitle}
-              onChange={(e) => setNewTitle(e.target.value)}
-              className="w-full bg-zinc-900 border border-zinc-800 rounded p-1.5 text-white uppercase text-[10px] focus:outline-none focus:border-zinc-700"
-            />
-          </div>
-
-          <div>
-            <label className="block text-zinc-500 uppercase font-bold tracking-wider mb-1">Description</label>
-            <textarea
-              placeholder="Description details..."
-              value={newDesc}
-              onChange={(e) => setNewDesc(e.target.value)}
-              className="w-full bg-zinc-900 border border-zinc-800 rounded p-1.5 text-white uppercase text-[10px] focus:outline-none focus:border-zinc-700 h-16 resize-none"
-            />
-          </div>
-
-
-          {/* TASK CHECKLIST BUILD ENGINE */}
-          <div className="space-y-1">
-            <label className="block text-zinc-500 uppercase font-bold tracking-wider">Sub Task Checklist</label>
-            <div className="flex gap-1">
-              <input
-                type="text"
-                placeholder="New checklist node..."
-                value={creationChecklistInput}
-                onChange={(e) => setCreationChecklistInput(e.target.value)}
-                className="flex-1 bg-zinc-900 border border-zinc-800 rounded p-1.5 text-white uppercase text-[10px] focus:outline-none"
-              />
-              <button
-                type="button"
-                onClick={() => {
-                  if (!creationChecklistInput.trim()) return;
-                  setNewChecklist([...newChecklist, { id: crypto.randomUUID(), text: creationChecklistInput.trim(), checked: false }]);
-                  setCreationChecklistInput('');
-                }}
-                className="px-3 bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white rounded uppercase text-[9px] font-bold transition-colors"
-              >
-                Add
-              </button>
-            </div>
-            {newChecklist.length > 0 && (
-              <div className="bg-zinc-900/50 border border-zinc-900 rounded p-1.5 max-h-24 overflow-y-auto space-y-1 mt-1">
-                {newChecklist.map((item) => (
-                  <div key={item.id} className="text-zinc-400 text-[9px] uppercase tracking-wide flex justify-between items-center bg-zinc-950 px-2 py-1 rounded border border-zinc-900">
-                    <span>• {item.text}</span>
-                    <button
-                      type="button"
-                      onClick={() => setNewChecklist(newChecklist.filter(i => i.id !== item.id))}
-                      className="text-rose-500 hover:text-rose-400 text-[8px] font-bold ml-1 uppercase"
-                    >
-                      Remove
-                    </button>
-                  </div>
-                ))}
+  {/* --- EDIT TASK MODAL OVERLAY --- */}
+      {editingTask && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm font-mono animate-fadeIn">
+          <div className="w-full max-w-md bg-zinc-950 border border-zinc-800 rounded-xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
+            
+            <div className="h-1 w-full bg-zinc-500" />
+            
+            <div className="p-4 border-b border-zinc-900 flex justify-between items-center bg-zinc-900/20">
+              <div>
+                <h3 className="text-xs font-black text-white uppercase tracking-wider">Modify Task Node</h3>
+                <p className="text-[9px] text-zinc-500 uppercase mt-0.5">Target: <span className="text-zinc-400 font-bold">{editingTask.id}</span></p>
               </div>
-            )}
-          </div>
+              <button onClick={() => setEditingTask(null)} className="text-zinc-500 hover:text-white text-xs font-bold p-1 uppercase">✕</button>
+            </div>
 
-          {/* EDIT ACCESS STRATEGY SELECTION */}
-          <div>
-            <label className="block text-zinc-500 uppercase font-bold tracking-wider mb-1">Edit Access Strategy</label>
-            <div className="hidden sm:flex gap-1">
-              {(['anyone', 'creator', 'custom'] as AccessStrategy[]).map((strat) => {
-                const isActive = newEditStrategy === strat;
-                let theme = '';
-                if (strat === 'anyone') theme = isActive ? 'bg-blue-950/60 text-blue-400 border-blue-800/80 shadow-[0_0_8px_rgba(59,130,246,0.15)]' : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:text-zinc-400';
-                if (strat === 'creator') theme = isActive ? 'bg-amber-950/60 text-amber-400 border-amber-800/80 shadow-[0_0_8px_rgba(245,158,11,0.15)]' : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:text-zinc-400';
-                if (strat === 'custom') theme = isActive ? 'bg-rose-950/60 text-rose-400 border-rose-800/80 shadow-[0_0_8px_rgba(244,63,94,0.15)]' : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:text-zinc-400';
-                
-                return (
+            <div className="p-4 overflow-y-auto space-y-4 text-[10px]">
+              <div>
+                <label className="block text-zinc-500 uppercase font-bold tracking-wider mb-1">Task Title</label>
+                <input
+                  type="text"
+                  value={editTitle}
+                  onChange={(e) => setEditTitle(e.target.value)}
+                  className="w-full bg-zinc-900 border border-zinc-800 rounded p-1.5 text-white uppercase text-[10px] focus:outline-none focus:border-zinc-700"
+                />
+              </div>
+
+              <div>
+                <label className="block text-zinc-500 uppercase font-bold tracking-wider mb-1">Description</label>
+                <textarea
+                  value={editDesc}
+                  onChange={(e) => setEditDesc(e.target.value)}
+                  className="w-full bg-zinc-900 border border-zinc-800 rounded p-1.5 text-white uppercase text-[10px] focus:outline-none focus:border-zinc-700 h-16 resize-none"
+                />
+              </div>
+
+              {/* Edit Checklist Engine */}
+              <div className="space-y-1">
+                <label className="block text-zinc-500 uppercase font-bold tracking-wider">Sub Task Checklist</label>
+                <div className="flex gap-1">
+                  <input
+                    type="text"
+                    placeholder="Add checklist item..."
+                    value={newChecklistItemText}
+                    onChange={(e) => setNewChecklistItemText(e.target.value)}
+                    className="flex-1 bg-zinc-900 border border-zinc-800 rounded p-1.5 text-white uppercase text-[10px] focus:outline-none"
+                  />
                   <button
-                    key={strat}
                     type="button"
-                    onClick={() => setNewEditStrategy(strat)}
-                    className={`flex-1 py-1.5 px-1 border rounded text-[9px] font-bold uppercase transition-all duration-150 ${theme}`}
+                    onClick={() => {
+                      if (!newChecklistItemText.trim()) return;
+                      setEditChecklist([...editChecklist, { id: crypto.randomUUID(), text: newChecklistItemText.trim(), isCompleted: false }]);
+                      setNewChecklistItemText('');
+                    }}
+                    className="px-3 bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white rounded uppercase text-[9px] font-bold"
                   >
-                    {strat === 'anyone' ? 'Anyone' : strat === 'creator' ? 'Creator' : 'Custom'}
+                    Add
                   </button>
-                );
-              })}
-            </div>
-            <select
-              value={newEditStrategy}
-              onChange={(e) => setNewEditStrategy(e.target.value as AccessStrategy)}
-              className="sm:hidden w-full bg-zinc-900 border border-zinc-800 rounded p-1.5 text-zinc-400 focus:outline-none uppercase font-bold"
-            >
-              <option value="anyone">Anyone</option>
-              <option value="creator">Creator Only</option>
-              <option value="custom">Custom Operators</option>
-            </select>
-          </div>
-
-          {/* DYNAMIC EDITOR CHECKBOX SELECTION LIST */}
-          {newEditStrategy === 'custom' && (
-            <div className="bg-zinc-900/40 border border-zinc-900 rounded p-2 space-y-1.5 animate-fadeIn">
-              <label className="block text-zinc-500 uppercase font-bold tracking-wider text-[8px]">Permitted Project Editors</label>
-              
-              {currentUser?.role === 'guest' ? (
-                <p className="text-rose-500 text-[9px] uppercase">⚠️ Access Denied: Junior Contractors cannot provision team access rules.</p>
-              ) : (
-                <div className="grid grid-cols-1 gap-1">
-                  {TEST_USERS.map((user) => {
-                    const isChecked = newPermittedEditors.includes(user.id);
-                    return (
-                      <label 
-                        key={user.id} 
-                        className={`flex items-center justify-between px-2 py-1.5 rounded border transition-colors cursor-pointer text-[9px] font-bold ${
-                          isChecked ? 'bg-zinc-900 border-zinc-700 text-white' : 'bg-zinc-950/40 border-zinc-900 text-zinc-500 hover:border-zinc-800'
-                        }`}
-                      >
-                        <div className="flex items-center gap-2">
-                          <input 
-                            type="checkbox"
-                            checked={isChecked}
-                            onChange={() => toggleSelectionUser(user.id, 'new-edit')}
-                            className="accent-blue-500 h-3 w-3 rounded bg-zinc-900 border-zinc-800 cursor-pointer"
-                          />
-                          <span className="uppercase tracking-wide">{user.name}</span>
-                        </div>
-                        <span className="text-[8px] px-1.5 py-0.5 rounded border border-zinc-800/80 bg-zinc-900 text-zinc-400 font-normal">{user.badge}</span>
-                      </label>
-                    );
-                  })}
                 </div>
-              )}
+                {editChecklist.length > 0 && (
+                  <div className="bg-zinc-900/50 border border-zinc-900 rounded p-1.5 max-h-24 overflow-y-auto space-y-1 mt-1">
+                    {editChecklist.map((item) => (
+                      <div key={item.id} className="text-zinc-400 text-[9px] uppercase tracking-wide flex justify-between items-center bg-zinc-950 px-2 py-1 rounded border border-zinc-900">
+                        <span className={item.isCompleted ? 'line-through text-zinc-600' : ''}>• {item.text}</span>
+                        <button type="button" onClick={() => setEditChecklist(editChecklist.filter(i => i.id !== item.id))} className="text-rose-500 hover:text-rose-400 text-[8px] font-bold ml-1 uppercase">Remove</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
-          )}
 
-          {/* MOVE ACCESS STRATEGY SELECTION */}
-          <div>
-            <label className="block text-zinc-500 uppercase font-bold tracking-wider mb-1">Move Access Strategy</label>
-            <div className="hidden sm:flex gap-1">
-              {(['anyone', 'creator', 'custom'] as AccessStrategy[]).map((strat) => {
-                const isActive = newMoveStrategy === strat;
-                let theme = '';
-                if (strat === 'anyone') theme = isActive ? 'bg-blue-950/60 text-blue-400 border-blue-800/80 shadow-[0_0_8px_rgba(59,130,246,0.15)]' : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:text-zinc-400';
-                if (strat === 'creator') theme = isActive ? 'bg-amber-950/60 text-amber-400 border-amber-800/80 shadow-[0_0_8px_rgba(245,158,11,0.15)]' : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:text-zinc-400';
-                if (strat === 'custom') theme = isActive ? 'bg-rose-950/60 text-rose-400 border-rose-800/80 shadow-[0_0_8px_rgba(244,63,94,0.15)]' : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:text-zinc-400';
-                
-                return (
-                  <button
-                    key={strat}
-                    type="button"
-                    onClick={() => setNewMoveStrategy(strat)}
-                    className={`flex-1 py-1.5 px-1 border rounded text-[9px] font-bold uppercase transition-all duration-150 ${theme}`}
-                  >
-                    {strat === 'anyone' ? 'Anyone' : strat === 'creator' ? 'Creator' : 'Custom'}
-                  </button>
-                );
-              })}
+            <div className="p-4 bg-zinc-900/30 border-t border-zinc-900 flex justify-end gap-1.5 shrink-0">
+              <button onClick={() => setEditingTask(null)} className="px-3 py-1.5 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-400 hover:text-zinc-200 uppercase rounded cursor-pointer transition-colors">Cancel</button>
+              <button onClick={saveEditedTask} disabled={!editTitle.trim()} className="px-4 py-1.5 border rounded font-bold uppercase transition-all duration-150 bg-blue-950/40 border-blue-800 text-blue-400 hover:bg-blue-900/40 hover:text-blue-300">Update Task</button>
             </div>
-            <select
-              value={newMoveStrategy}
-              onChange={(e) => setNewMoveStrategy(e.target.value as AccessStrategy)}
-              className="sm:hidden w-full bg-zinc-900 border border-zinc-800 rounded p-1.5 text-zinc-400 focus:outline-none uppercase font-bold"
-            >
-              <option value="anyone">Anyone</option>
-              <option value="creator">Creator Only</option>
-              <option value="custom">Custom Operators</option>
-            </select>
           </div>
-
-          {/* DYNAMIC MOVER CHECKBOX SELECTION LIST */}
-          {newMoveStrategy === 'custom' && (
-            <div className="bg-zinc-900/40 border border-zinc-900 rounded p-2 space-y-1.5 animate-fadeIn">
-              <label className="block text-zinc-500 uppercase font-bold tracking-wider text-[8px]">Permitted Project Movers</label>
-              
-              {currentUser?.role === 'guest' ? (
-                <p className="text-rose-500 text-[9px] uppercase">⚠️ Access Denied: Junior Contractors cannot provision team access rules.</p>
-              ) : (
-                <div className="grid grid-cols-1 gap-1">
-                  {TEST_USERS.map((user) => {
-                    const isChecked = newPermittedMovers.includes(user.id);
-                    return (
-                      <label 
-                        key={user.id} 
-                        className={`flex items-center justify-between px-2 py-1.5 rounded border transition-colors cursor-pointer text-[9px] font-bold ${
-                          isChecked ? 'bg-zinc-900 border-zinc-700 text-white' : 'bg-zinc-950/40 border-zinc-900 text-zinc-500 hover:border-zinc-800'
-                        }`}
-                      >
-                        <div className="flex items-center gap-2">
-                          <input 
-                            type="checkbox"
-                            checked={isChecked}
-                            onChange={() => toggleSelectionUser(user.id, 'new-move')}
-                            className="accent-blue-500 h-3 w-3 rounded bg-zinc-900 border-zinc-800 cursor-pointer"
-                          />
-                          <span className="uppercase tracking-wide">{user.name}</span>
-                        </div>
-                        <span className="text-[8px] px-1.5 py-0.5 rounded border border-zinc-800/80 bg-zinc-900 text-zinc-400 font-normal">{user.badge}</span>
-                      </label>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          )}
-
-          
         </div>
-
-        {/* SUBMISSION OPERATIONS ROW BAR */}
-        <div className="p-4 bg-zinc-900/30 border-t border-zinc-900 flex justify-end gap-1.5 shrink-0">
-          <button
-            onClick={() => setIsAddingTask(false)}
-            className="px-3 py-1.5 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-400 hover:text-zinc-200 uppercase rounded cursor-pointer transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={saveNewTask}
-            disabled={!newTitle.trim()}
-            className={`px-4 py-1.5 border rounded font-bold uppercase transition-all duration-150 ${
-              newTitle.trim()
-                ? 'bg-blue-950/40 border-blue-800 text-blue-400 shadow-[0_0_10px_rgba(59,130,246,0.1)] hover:bg-blue-900/40 hover:text-blue-300 cursor-pointer'
-                : 'bg-zinc-900/40 border-zinc-900 text-zinc-600 cursor-not-allowed'
-            }`}
-          >
-            Save Task
-          </button>
-        </div>
-      </div>
-    </div>
-  )}
+      )}
 
       {/* --- HANDOFF RELEASE FLOW DIALOG WINDOW --- */}
       {handoffTask && (
@@ -1356,8 +1243,9 @@ export default function WarRoom() {
               {(!activeHistoryTask.history || activeHistoryTask.history.length === 0) ? (
                 <div className="text-center py-6 text-zinc-600 text-[10px]">No historic entries located within database memory ledger store</div>
               ) : (
-                activeHistoryTask.history.map((log, idx) => (
-                  <div key={idx} className="p-2 bg-zinc-950 rounded border border-zinc-800 text-[10px]">
+                
+    activeHistoryTask.history.map((log: AuditLog, idx: number) => (
+      <div key={idx} className="p-2 bg-zinc-950 rounded border border-zinc-800 text-[10px]">
                     <div className="flex justify-between text-zinc-500 font-bold text-[9px] mb-1">
                       <span>Operator: {log.movedBy}</span>
                       <span>{log.timestamp ? new Date(log.timestamp).toLocaleTimeString() : 'Unknown Time'}</span>
