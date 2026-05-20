@@ -427,6 +427,13 @@ export default function WarRoom() {
 
       recorder.start();
       setRecordingTaskId(taskId);
+      setTimeout(() => {
+  if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+    mediaRecorderRef.current.stop();
+    setRecordingTaskId(null);
+    console.log("Auto-stopped recording to protect database storage quotas.");
+  }
+}, 5000);
     } catch (err) {
       console.error("Mic access denied", err);
       alert("Permission Denied: Microphone access is required to use the Comm-Link.");
@@ -447,7 +454,10 @@ export default function WarRoom() {
 
   const handleMouseMove = (e: React.MouseEvent) => {
     const now = Date.now();
-    if (!containerRef.current || !currentUser || !interactionChannelRef.current || now - lastBroadcast.current < 50) return;
+    // if (!containerRef.current || !currentUser || !interactionChannelRef.current || now - lastBroadcast.current < 50) return;
+
+    
+if (!containerRef.current || !currentUser || !interactionChannelRef.current || now - lastBroadcast.current < 200) return;
     lastBroadcast.current = now;
     const rect = containerRef.current.getBoundingClientRect();
     interactionChannelRef.current.send({
@@ -813,6 +823,11 @@ style={{
   ` : 'none',
   backgroundSize: '40px 40px'
 }}>
+
+  {/* OVERNIGHT LOCKOUT BANNER */}
+    <div className="w-full bg-amber-950/80 border border-amber-500/30 p-2 text-center text-[10px] font-mono text-amber-400 uppercase tracking-widest shrink-0">
+      ⚠️ System Lockdown Active: Database RLS Frozen Until Morning Maintenance.
+    </div>
   
       <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-4 border-b border-zinc-900 pb-4 gap-4 shrink-0">
         <div className="flex items-center gap-4">
