@@ -38,8 +38,9 @@ export interface Task {
   description?: string;
   status: TaskStatus;
   position: number;
-  priority?: 'low' | 'medium' | 'high' | 'critical'; // Added for DEFCON
-  deadline?: string; // Added for DEFCON
+  priority?: 'low' | 'medium' | 'high' | 'critical'; 
+  deadline?: string; 
+  voiceMemo?: string;
   createdBy: string;
   createdByName: string;
   lastMovedBy?: string;
@@ -70,4 +71,5 @@ export interface UserPresence {
 
 export type BroadcastPayload = 
   | { type: 'cursor'; userId: string; userName: string; color: string; payload: { x: number; y: number } }
-  | { type: 'defcon'; userId: string; userName: string; payload: { level: number } };
+  | { type: 'defcon'; userId: string; userName: string; payload: { level: number } }
+  | { type: 'task-hover'; userId: string; payload: { taskId: string } }; 

@@ -41,13 +41,33 @@ const STRATEGY_THEMES: Record<AccessStrategy, { text: string; bgCard: string }> 
 
 export default function WarRoom() {
   // --- STATE & INITIALIZATION ---
-  
   const [mounted, setMounted] = useState<boolean>(false);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [presences, setPresences] = useState<Record<string, UserPresence>>({});
   const [currentUser, setCurrentUser] = useState<Profile | null>(null);
   const [timeTicker, setTimeTicker] = useState<number>(Date.now());
   const [savedTasks, setSavedTasks] = useState<Record<string, boolean>>({});
+
+  // Comm-Link (Audio) State
+  const [recordingTaskId, setRecordingTaskId] = useState<string | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+
+  // Heatmap State
+  const [taskHeat, setTaskHeat] = useState<Record<string, number>>({});
+
+  // Derive the most recent 10 actions from all tasks for the Comms Ticker
+  const recentLogs = React.useMemo(() => {
+    const allLogs: (AuditLog & { taskTitle: string })[] = [];
+    tasks.forEach(t => {
+      t.history?.forEach(h => {
+        allLogs.push({ ...h, taskTitle: t.title });
+      });
+    });
+    return allLogs
+      .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+      .slice(0, 10);
+  }, [tasks]);
 
   // Global DEFCON State
   const [defconLevel, setDefconLevel] = useState<number>(5);
@@ -112,7 +132,8 @@ export default function WarRoom() {
     permittedEditors: item.permitted_editors || item.permittedEditors || [],
     permittedMovers: item.permitted_movers || item.permittedMovers || [],
     checklist: item.checklist || [],
-    activeSession: item.active_session || item.activeSession || undefined
+    activeSession: item.active_session || item.activeSession || undefined,
+    voiceMemo: item.voice_memo || item.voiceMemo || undefined
   });
 
   // --- NATIVE API INTEGRATION LOOP ---
@@ -187,10 +208,16 @@ export default function WarRoom() {
           }));
         } else if (payload.type === 'defcon') {
           setDefconLevel(payload.payload.level);
-          if (payload.payload.level === 1) {
-            triggerNativeAlarmNotification(); // Play the alarm if someone triggers DEFCON 1
-          }
+          if (payload.payload.level === 1) triggerNativeAlarmNotification();
+          
+        // ADD THIS NEW BLOCK:
+        } else if (payload.type === 'task-hover') {
+          setTaskHeat(prev => ({
+            ...prev,
+            [payload.payload.taskId]: Math.min((prev[payload.payload.taskId] || 0) + 15, 100)
+          }));
         }
+        
       })
       .subscribe();
 
@@ -296,6 +323,24 @@ export default function WarRoom() {
     return () => clearInterval(runCheck);
   }, [tasks, currentUser]);
 
+  // Fog of War: Cooldown Loop
+  useEffect(() => {
+    const cooldownTimer = setInterval(() => {
+      setTaskHeat((prev) => {
+        const next = { ...prev };
+        let changed = false;
+        Object.keys(next).forEach((id) => {
+          if (next[id] > 0) {
+            next[id] = Math.max(0, next[id] - 5); // Cool down by 5 points
+            changed = true;
+          }
+        });
+        return changed ? next : prev;
+      });
+    }, 2000);
+    return () => clearInterval(cooldownTimer);
+  }, []);
+
   const triggerNativeAlarmNotification = () => {
     try {
       if (!audioCtxRef.current) {
@@ -352,6 +397,54 @@ export default function WarRoom() {
     return false;
   };
 
+  // --- COMM-LINK AUDIO ENGINE ---
+  const startRecording = async (taskId: string) => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = recorder;
+      audioChunksRef.current = [];
+
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) audioChunksRef.current.push(e.data);
+      };
+
+      recorder.onstop = async () => {
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        const reader = new FileReader();
+        reader.readAsDataURL(audioBlob);
+        reader.onloadend = async () => {
+          const base64Audio = reader.result as string;
+          const supabase = getSupabase();
+          if (supabase) {
+            // Save the audio directly to the task
+            await supabase.from('tasks').update({ voice_memo: base64Audio }).eq('id', parseInt(taskId, 10));
+          }
+        };
+        // Turn off the red recording dot on the browser tab
+        stream.getTracks().forEach(track => track.stop());
+      };
+
+      recorder.start();
+      setRecordingTaskId(taskId);
+    } catch (err) {
+      console.error("Mic access denied", err);
+      alert("Permission Denied: Microphone access is required to use the Comm-Link.");
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+      mediaRecorderRef.current.stop();
+      setRecordingTaskId(null);
+    }
+  };
+
+  const playVoiceMemo = (base64Audio: string) => {
+    const audio = new Audio(base64Audio);
+    audio.play();
+  };
+
   const handleMouseMove = (e: React.MouseEvent) => {
     const now = Date.now();
     if (!containerRef.current || !currentUser || !interactionChannelRef.current || now - lastBroadcast.current < 50) return;
@@ -391,6 +484,20 @@ export default function WarRoom() {
     });
 
     if (level === 1) triggerNativeAlarmNotification();
+  };
+
+  const handleTaskHover = (taskId: string) => {
+    if (!interactionChannelRef.current || !currentUser) return;
+    
+    // Instantly heat it up locally (Max heat is 100)
+    setTaskHeat(prev => ({ ...prev, [taskId]: Math.min((prev[taskId] || 0) + 15, 100) }));
+    
+    // Broadcast to the rest of the War Room
+    interactionChannelRef.current.send({
+      type: 'broadcast',
+      event: 'ui-event',
+      payload: { type: 'task-hover', userId: currentUser.id, payload: { taskId } },
+    });
   };
 
   const handleDragStart = (e: React.DragEvent, task: Task) => {
@@ -696,8 +803,17 @@ export default function WarRoom() {
   
   
 
+  // Notice the 'scanlines' class added right after relative!
   return (
-    <div ref={containerRef} onMouseMove={handleMouseMove} className={`w-screen h-screen transition-colors duration-1000 ${defconLevel === 1 ? 'bg-rose-950/80 shadow-[inset_0_0_150px_rgba(225,29,72,0.2)]' : 'bg-zinc-950'} text-zinc-100 p-4 md:p-6 lg:p-8 overflow-hidden font-sans relative flex flex-col`}>
+    <div ref={containerRef} onMouseMove={handleMouseMove} className={`w-screen h-screen transition-colors duration-1000 ${defconLevel === 1 ? 'bg-rose-950/80 shadow-[inset_0_0_150px_rgba(225,29,72,0.2)]' : 'bg-zinc-950'} text-zinc-100 p-4 md:p-6 lg:p-8 overflow-hidden font-sans relative scanlines flex flex-col`}
+style={{
+  backgroundImage: defconLevel !== 1 ? `
+    linear-gradient(to right, rgba(255,255,255,0.03) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255,255,255,0.03) 1px, transparent 1px)
+  ` : 'none',
+  backgroundSize: '40px 40px'
+}}>
+  
       <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-4 border-b border-zinc-900 pb-4 gap-4 shrink-0">
         <div className="flex items-center gap-4">
           
@@ -741,6 +857,8 @@ export default function WarRoom() {
         
         <button onClick={() => setCurrentUser(null)} className="px-3 py-1.5 bg-zinc-900 border border-zinc-800 text-zinc-400 font-mono text-[10px] hover:text-white rounded self-start sm:self-auto cursor-pointer">Switch Account</button>
       </header>
+      {/* CRT Scanline Overlay */}
+<div className="pointer-events-none fixed inset-0 z-[9999] opacity-[0.12] mix-blend-overlay bg-[linear-gradient(rgba(0,0,0,0)_50%,rgba(0,0,0,1)_50%)] bg-[length:100%_4px]" />
 
       {/* Mobile Column Navigation bar tabs */}
       <div className="flex sm:hidden bg-zinc-900 p-1 border border-zinc-800 rounded-lg mb-4 shrink-0 font-mono text-[10px]">
@@ -790,19 +908,32 @@ export default function WarRoom() {
                     const strategy = STRATEGY_THEMES[task.editStrategy] || STRATEGY_THEMES.anyone;
                     const remSeconds = task.activeSession ? getRemainingTimeSeconds(task.activeSession.lastCheckedInAt) : 60;
                     // 1. Calculate if the task should be dimmed
+                    // 1. DEFCON & Heat Calculations
 const isDefconDimmed = defconLevel === 1 && task.priority !== 'critical';
+const heat = taskHeat[task.id] || 0;
 
+// Dynamic Heatmap Styles
+const heatStyles = heat > 70 
+  ? 'shadow-[0_0_20px_rgba(225,29,72,0.4)] border-rose-500 bg-rose-950/20' // RED HOT
+  : heat > 30 
+  ? 'shadow-[0_0_15px_rgba(245,158,11,0.3)] border-amber-500/80 bg-amber-950/10' // WARM
+  : 'border-zinc-800'; // COLD
+
+// Fog of War (dim cold tasks unless we are in DEFCON 1, which has its own dimming rules)
+const fogStyles = (heat === 0 && defconLevel !== 1) ? 'opacity-50 hover:opacity-100' : 'opacity-100';
 
 return (
   <div 
     key={task.id} 
     draggable={moveAllowed && !softLocked && !isDefconDimmed} 
     onDragStart={(e) => handleDragStart(e, task)} 
-    className={`bg-zinc-900 border transition-all duration-500 
-      ${softLocked ? 'border-rose-900/40 opacity-70' : task.activeSession ? 'border-amber-500/50 shadow-lg shadow-amber-500/5' : 'border-zinc-800'} 
-      ${isDefconDimmed ? 'opacity-20 grayscale pointer-events-none scale-95' : 'scale-100'} 
+    onMouseEnter={() => handleTaskHover(task.id)} // <-- TRIGGERS THE HEAT
+    className={`bg-zinc-900 border transition-all duration-700 
+      ${softLocked ? 'border-rose-900/40 opacity-70' : task.activeSession ? 'border-amber-500/50 shadow-lg shadow-amber-500/5' : heatStyles} 
+      ${isDefconDimmed ? 'opacity-20 grayscale pointer-events-none scale-95' : `scale-100 ${fogStyles}`} 
       rounded-lg p-3 relative ${strategy.bgCard}`}
   >
+
                         {softLocked && (
                           <div className="absolute top-2 right-2 text-[9px] font-mono text-rose-400 bg-rose-950/40 border border-rose-900/50 px-1.5 py-0.5 rounded uppercase font-bold animate-pulse">Locked by {task.activeSession?.userName}</div>
                         )}
@@ -812,7 +943,9 @@ return (
                           <span className={`uppercase font-bold text-[8px] px-1 bg-zinc-950 rounded ${strategy.text}`}>{task.editStrategy}</span>
                         </div>
 
-                        <h4 className="text-xs font-bold text-zinc-100 uppercase tracking-tight truncate">{task.title}</h4>
+                        <h4 className={`text-xs font-bold uppercase tracking-tight truncate ${task.status === 'done' ? 'text-emerald-400 font-mono' : 'text-zinc-100'}`}>
+  {task.status === 'done' ? '> ' : ''}{task.title}
+</h4>
                         {task.description && <p className="text-[11px] text-zinc-400 line-clamp-2 mt-1 leading-normal">{task.description}</p>}
 
                         {task.activeSession && (
@@ -888,6 +1021,7 @@ return (
         </button>
       );
     })}
+    
   </div>
 )}
                               </div>
@@ -905,6 +1039,40 @@ return (
                           </div>
                         </div>
 
+                        {/* COMM-LINK AUDIO UI */}
+                        <div className="mt-3 pt-2 border-t border-zinc-950/50 flex items-center justify-between gap-2 font-mono text-[10px]">
+                          <div className="flex items-center gap-2 text-zinc-500">
+                            <span>📻 Comm-Link:</span>
+                            {task.voiceMemo ? (
+                              <button 
+                                onClick={() => playVoiceMemo(task.voiceMemo!)}
+                                className="px-2 py-0.5 bg-sky-950 text-sky-400 border border-sky-900 rounded font-bold uppercase hover:bg-sky-900 transition-colors flex items-center gap-1"
+                              >
+                                ▶ Play Log
+                              </button>
+                            ) : (
+                              <span className="text-zinc-600 italic text-[9px]">No logs</span>
+                            )}
+                          </div>
+
+                          {!softLocked && (
+                            <button
+                              onMouseDown={() => startRecording(task.id)}
+                              onMouseUp={stopRecording}
+                              onMouseLeave={stopRecording}
+                              onTouchStart={() => startRecording(task.id)}
+                              onTouchEnd={stopRecording}
+                              className={`px-2 py-1 border rounded text-[9px] uppercase font-black transition-all ${
+                                recordingTaskId === task.id 
+                                  ? 'bg-rose-600 text-white border-rose-500 shadow-[0_0_15px_rgba(225,29,72,0.5)] animate-pulse' 
+                                  : 'bg-zinc-900 text-zinc-400 border-zinc-700 hover:text-white hover:border-zinc-500'
+                              }`}
+                            >
+                              {recordingTaskId === task.id ? '🎙 Recording...' : 'Hold to Talk'}
+                            </button>
+                          )}
+                        </div>
+
                       </div>
                     );
                   })
@@ -913,6 +1081,28 @@ return (
             </div>
           );
         })}
+
+        {/* --- LIVE COMMS CHATTER TICKER --- */}
+      <div className="absolute bottom-0 left-0 right-0 h-6 bg-zinc-950 border-t border-zinc-900 flex items-center overflow-hidden z-40 font-mono text-[10px] uppercase tracking-wider">
+        <div className="px-3 bg-zinc-900 h-full flex items-center border-r border-zinc-800 text-zinc-400 font-bold z-10 shrink-0 shadow-[5px_0_10px_rgba(0,0,0,0.5)]">
+          📻 CHATTER
+        </div>
+        <div className="flex-1 overflow-hidden relative h-full flex items-center">
+          {recentLogs.length > 0 ? (
+            <div className={`animate-ticker ${defconLevel === 1 ? 'defcon-1-ticker font-black' : 'text-zinc-500'}`}>
+              {recentLogs.map((log, i) => (
+                <span key={i} className="mx-8">
+                  <span className="opacity-50">[{new Date(log.timestamp).toLocaleTimeString()}]</span> 
+                  <span className="text-blue-400 ml-1">{log.movedBy}</span>: {log.notes} 
+                  <span className="opacity-50 ml-1">(REF: {log.taskTitle})</span>
+                </span>
+              ))}
+            </div>
+          ) : (
+            <span className="text-zinc-700 ml-4 italic">No recent comms...</span>
+          )}
+        </div>
+      </div>
 
         {/* --- ADD TASK MODAL OVERLAY --- */}
       {isAddingTask && (
