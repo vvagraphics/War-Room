@@ -777,7 +777,7 @@ export default function WarRoom() {
 
   if (!currentUser) {
     return (
-      <div className="w-screen h-screen bg-zinc-950 flex items-center justify-center p-4 font-mono">
+      <div className="w-screen h-screen bg-[#0a0500] flex items-center justify-center p-4 font-mono">
         <div className="w-full max-w-sm bg-zinc-900 border border-zinc-800 rounded-xl p-6 text-center shadow-2xl">
           <h2 className="text-white text-sm font-bold uppercase tracking-wider mb-2">Select User Account Identity</h2>
           <p className="text-zinc-500 text-[11px] mb-5">Choose a testing operator role card profile to access the workspace board metrics.</p>
@@ -805,7 +805,7 @@ export default function WarRoom() {
 
   // Notice the 'scanlines' class added right after relative!
   return (
-    <div ref={containerRef} onMouseMove={handleMouseMove} className={`w-screen h-screen transition-colors duration-1000 ${defconLevel === 1 ? 'bg-rose-950/80 shadow-[inset_0_0_150px_rgba(225,29,72,0.2)]' : 'bg-zinc-950'} text-zinc-100 p-4 md:p-6 lg:p-8 overflow-hidden font-sans relative scanlines flex flex-col`}
+    <div ref={containerRef} onMouseMove={handleMouseMove} className={`w-screen h-screen transition-colors duration-1000 ${defconLevel === 1 ? 'bg-rose-950/80 shadow-[inset_0_0_150px_rgba(225,29,72,0.2)]' : 'bg-[#0a0500]'} text-amber-500 p-4 md:p-6 lg:p-8 overflow-hidden font-sans relative scanlines flex flex-col`}
 style={{
   backgroundImage: defconLevel !== 1 ? `
     linear-gradient(to right, rgba(255,255,255,0.03) 1px, transparent 1px),
@@ -843,7 +843,7 @@ style={{
                     className={`w-7 h-7 rounded text-[11px] font-black transition-all cursor-pointer ${
                       isActive 
                         ? (isD1 ? 'bg-rose-600 text-white shadow-[0_0_15px_rgba(225,29,72,0.6)] animate-pulse' : 'bg-zinc-200 text-zinc-900') 
-                        : 'bg-zinc-950 text-zinc-500 hover:bg-zinc-800'
+                        : 'bg-[#0a0500] text-zinc-500 hover:bg-zinc-800'
                     }`}
                   >
                     {level}
@@ -855,7 +855,7 @@ style={{
 
         </div>
         
-        <button onClick={() => setCurrentUser(null)} className="px-3 py-1.5 bg-zinc-900 border border-zinc-800 text-zinc-400 font-mono text-[10px] hover:text-white rounded self-start sm:self-auto cursor-pointer">Switch Account</button>
+        <button onClick={() => setCurrentUser(null)} className="px-3 py-1.5 bg-zinc-900 border border-zinc-800 text-zinc-600 font-mono text-[10px] hover:text-white rounded self-start sm:self-auto cursor-pointer">Switch Account</button>
       </header>
       {/* CRT Scanline Overlay */}
 <div className="pointer-events-none fixed inset-0 z-[9999] opacity-[0.12] mix-blend-overlay bg-[linear-gradient(rgba(0,0,0,0)_50%,rgba(0,0,0,1)_50%)] bg-[length:100%_4px]" />
@@ -878,7 +878,7 @@ style={{
               <div className="flex items-center justify-between mb-4 pb-2 border-b border-zinc-900/50 shrink-0">
                 <div className="flex items-center gap-2">
                   <span className={`w-1.5 h-3 ${col.accent} rounded-sm`} />
-                  <h3 className="text-[11px] font-bold font-mono tracking-wider text-zinc-400 uppercase">{col.title} ({filteredTasks.length})</h3>
+                  <h3 className="text-[11px] font-bold font-mono tracking-wider text-zinc-600 uppercase">{col.title} ({filteredTasks.length})</h3>
                 </div>
                 <button onClick={() => {
                   setAddTaskStatus(col.id);
@@ -940,28 +940,28 @@ return (
 
                         <div className="text-[9px] font-mono text-zinc-500 mb-1 flex justify-between">
                           <span>Created by: {task.createdByName}</span>
-                          <span className={`uppercase font-bold text-[8px] px-1 bg-zinc-950 rounded ${strategy.text}`}>{task.editStrategy}</span>
+                          <span className={`uppercase font-bold text-[8px] px-1 bg-[#0a0500] rounded ${strategy.text}`}>{task.editStrategy}</span>
                         </div>
 
-                        <h4 className={`text-xs font-bold uppercase tracking-tight truncate ${task.status === 'done' ? 'text-emerald-400 font-mono' : 'text-zinc-100'}`}>
-  {task.status === 'done' ? '> ' : ''}{task.title}
+                       <h4 className={`text-xs font-bold uppercase tracking-tight truncate ${task.status === 'done' ? 'text-rose-500 line-through opacity-70 font-mono' : 'text-amber-500'}`}>
+  {task.status === 'done' ? '[X] ' : ''}{task.title}
 </h4>
-                        {task.description && <p className="text-[11px] text-zinc-400 line-clamp-2 mt-1 leading-normal">{task.description}</p>}
+                        {task.description && <p className="text-[11px] text-zinc-600 line-clamp-2 mt-1 leading-normal">{task.description}</p>}
 
                         {task.activeSession && (
-                          <div className="mt-3 p-2 bg-zinc-950/60 border border-zinc-800/80 rounded font-mono text-[10px] flex items-center justify-between">
+                          <div className="mt-3 p-2 bg-[#0a0500]/60 border border-zinc-800/80 rounded font-mono text-[10px] flex items-center justify-between">
                             <span className="text-amber-400 font-bold truncate max-w-[90px]">Active: {task.activeSession.userName}</span>
                             <div className="flex items-center gap-2 shrink-0">
-                              <span className={remSeconds <= 20 ? 'text-rose-500 font-black animate-pulse' : 'text-zinc-400'}>Time left: {remSeconds}s</span>
+                              <span className={remSeconds <= 20 ? 'text-rose-500 font-black animate-pulse' : 'text-zinc-600'}>Time left: {remSeconds}s</span>
                             </div>
                           </div>
                         )}
 
                         {task.checklist && task.checklist.length > 0 && (
-                          <div className="mt-3 space-y-1 bg-zinc-950/30 p-1.5 rounded border border-zinc-900">
+                          <div className="mt-3 space-y-1 bg-[#0a0500]/30 p-1.5 rounded border border-zinc-900">
                             
     {task.checklist.map((item: ChecklistItem) => (
-      <button key={item.id} onClick={() => toggleChecklistItem(task, item.id)} disabled={softLocked} className="w-full flex items-center gap-2 text-left text-[10px] font-mono text-zinc-400 hover:text-zinc-200">
+      <button key={item.id} onClick={() => toggleChecklistItem(task, item.id)} disabled={softLocked} className="w-full flex items-center gap-2 text-left text-[10px] font-mono text-zinc-600 hover:text-zinc-200">
                                 <span className={`w-2.5 h-2.5 border rounded-sm flex items-center justify-center text-[7px] font-black ${item.isCompleted ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400' : 'border-zinc-800 bg-zinc-900'}`}>{item.isCompleted ? '✓' : ''}</span>
                                 <span className={`truncate ${item.isCompleted ? 'line-through text-zinc-600' : ''}`}>{item.text}</span>
                               </button>
@@ -972,7 +972,7 @@ return (
                         <div className="mt-3 pt-2 border-t border-zinc-950 flex items-center justify-between gap-2 font-mono text-[10px]">
                           <div className="flex items-center gap-1">
                             {!task.activeSession ? (
-                              <button onClick={() => claimWorkSession(task)} className="px-2 py-0.5 bg-zinc-950 hover:bg-zinc-800 text-amber-500 border border-zinc-800 rounded text-[9px] uppercase font-bold cursor-pointer">Claim Task</button>
+                              <button onClick={() => claimWorkSession(task)} className="px-2 py-0.5 bg-[#0a0500] hover:bg-zinc-800 text-amber-500 border border-zinc-800 rounded text-[9px] uppercase font-bold cursor-pointer">Claim Task</button>
                             ) : isWorker ? (
                               <>
                                 <button onClick={() => pingCheckIn(task)} className="px-2 py-0.5 bg-emerald-950 text-emerald-400 border border-emerald-900/60 rounded text-[9px] font-black uppercase cursor-pointer animate-pulse">Ping Timer</button>
@@ -992,14 +992,14 @@ return (
                                 setEditPermittedEditors(task.permittedEditors || []);
                                 setEditPermittedMovers(task.permittedMovers || []);
                                 
-                              }} className="px-1.5 py-0.5 bg-zinc-900 text-zinc-400 hover:text-white border border-zinc-800 rounded text-[9px] uppercase cursor-pointer">Edit</button>
+                              }} className="px-1.5 py-0.5 bg-zinc-900 text-zinc-600 hover:text-white border border-zinc-800 rounded text-[9px] uppercase cursor-pointer">Edit</button>
                             )}
                           </div>
 
                           <div className="flex items-center gap-1">
                             {moveAllowed && !softLocked && (
                               <div className="relative">
-                                <button onClick={() => setActiveMoveMenuId(activeMoveMenuId === task.id ? null : task.id)} className="px-1.5 py-0.5 bg-zinc-950 border border-zinc-800 text-zinc-300 rounded text-[9px] font-bold cursor-pointer uppercase">Move Column</button>
+                                <button onClick={() => setActiveMoveMenuId(activeMoveMenuId === task.id ? null : task.id)} className="px-1.5 py-0.5 bg-[#0a0500] border border-zinc-800 text-zinc-300 rounded text-[9px] font-bold cursor-pointer uppercase">Move Column</button>
                                 {activeMoveMenuId === task.id && (
   <div className="absolute right-0 bottom-full mb-1 w-28 bg-zinc-900 border border-zinc-800 rounded shadow-xl z-50 py-1 text-[9px]">
     {COLUMNS.map(c => {
@@ -1015,7 +1015,7 @@ return (
           key={c.id} 
           disabled={task.status === c.id} 
           onClick={() => executeMoveOperation(task.id, c.id)} 
-          className={`w-full px-2 py-1 text-left uppercase font-bold ${task.status === c.id ? 'text-zinc-600 bg-zinc-950/40 cursor-not-allowed' : 'text-zinc-300 hover:bg-zinc-800'}`}
+          className={`w-full px-2 py-1 text-left uppercase font-bold ${task.status === c.id ? 'text-zinc-600 bg-[#0a0500]/40 cursor-not-allowed' : 'text-zinc-300 hover:bg-zinc-800'}`}
         >
           {arrow && <span className={`${arrowColor} font-sans font-bold mr-0.5`}>{arrow}</span>}to {c.id === 'todo' ? 'To Do' : c.id === 'in-progress' ? 'In Progress' : 'Done'}
         </button>
@@ -1028,9 +1028,9 @@ return (
                             )}
 
                             {currentUser.role === 'admin' && (
-                              <div className="flex items-center gap-1 bg-zinc-950/40 p-0.5 border border-zinc-800 rounded">
-                                <button onClick={() => setActiveHistoryTask(task)} className="px-1 py-0.5 bg-zinc-900 hover:bg-zinc-800 rounded text-[9px] text-zinc-400 hover:text-white cursor-pointer">View Logs</button>
-                                <button onClick={() => executeExportTaskFile(task)} className="px-1 py-0.5 bg-zinc-900 hover:bg-zinc-800 rounded text-[9px] text-zinc-400 hover:text-white cursor-pointer">Save File</button>
+                              <div className="flex items-center gap-1 bg-[#0a0500]/40 p-0.5 border border-zinc-800 rounded">
+                                <button onClick={() => setActiveHistoryTask(task)} className="px-1 py-0.5 bg-zinc-900 hover:bg-zinc-800 rounded text-[9px] text-zinc-600 hover:text-white cursor-pointer">View Logs</button>
+                                <button onClick={() => executeExportTaskFile(task)} className="px-1 py-0.5 bg-zinc-900 hover:bg-zinc-800 rounded text-[9px] text-zinc-600 hover:text-white cursor-pointer">Save File</button>
                                 {savedTasks[task.id] && task.status === 'done' && (
                                   <button onClick={() => executeCompleteTaskOnly(task)} className="px-1 py-0.5 bg-emerald-950 text-emerald-400 hover:bg-emerald-900 rounded text-[9px] font-bold cursor-pointer">Delete Task</button>
                                 )}
@@ -1065,7 +1065,7 @@ return (
                               className={`px-2 py-1 border rounded text-[9px] uppercase font-black transition-all ${
                                 recordingTaskId === task.id 
                                   ? 'bg-rose-600 text-white border-rose-500 shadow-[0_0_15px_rgba(225,29,72,0.5)] animate-pulse' 
-                                  : 'bg-zinc-900 text-zinc-400 border-zinc-700 hover:text-white hover:border-zinc-500'
+                                  : 'bg-zinc-900 text-zinc-600 border-zinc-700 hover:text-white hover:border-zinc-500'
                               }`}
                             >
                               {recordingTaskId === task.id ? '🎙 Recording...' : 'Hold to Talk'}
@@ -1083,8 +1083,8 @@ return (
         })}
 
         {/* --- LIVE COMMS CHATTER TICKER --- */}
-      <div className="absolute bottom-0 left-0 right-0 h-6 bg-zinc-950 border-t border-zinc-900 flex items-center overflow-hidden z-40 font-mono text-[10px] uppercase tracking-wider">
-        <div className="px-3 bg-zinc-900 h-full flex items-center border-r border-zinc-800 text-zinc-400 font-bold z-10 shrink-0 shadow-[5px_0_10px_rgba(0,0,0,0.5)]">
+      <div className="absolute bottom-0 left-0 right-0 h-6 bg-[#0a0500] border-t border-zinc-900 flex items-center overflow-hidden z-40 font-mono text-[10px] uppercase tracking-wider">
+        <div className="px-3 bg-zinc-900 h-full flex items-center border-r border-zinc-800 text-zinc-600 font-bold z-10 shrink-0 shadow-[5px_0_10px_rgba(0,0,0,0.5)]">
           📻 CHATTER
         </div>
         <div className="flex-1 overflow-hidden relative h-full flex items-center">
@@ -1107,7 +1107,7 @@ return (
         {/* --- ADD TASK MODAL OVERLAY --- */}
       {isAddingTask && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm font-mono animate-fadeIn">
-          <div className="w-full max-w-md bg-zinc-950 border border-zinc-800 rounded-xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
+          <div className="w-full max-w-md bg-[#0a0500] border border-zinc-800 rounded-xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
             
             {/* Dynamic header colored border band accent tracker */}
             <div className={`h-1 w-full ${activeColMeta.accent}`} />
@@ -1115,7 +1115,7 @@ return (
             <div className="p-4 border-b border-zinc-900 flex justify-between items-center bg-zinc-900/20">
               <div>
                 <h3 className="text-xs font-black text-white uppercase tracking-wider">Initialize Task Node</h3>
-                <p className="text-[9px] text-zinc-500 uppercase mt-0.5">Appending into target column queue: <span className="text-zinc-400 font-bold">{activeColMeta.title}</span></p>
+                <p className="text-[9px] text-zinc-500 uppercase mt-0.5">Appending into target column queue: <span className="text-zinc-600 font-bold">{activeColMeta.title}</span></p>
               </div>
               <button onClick={() => setIsAddingTask(false)} className="text-zinc-500 hover:text-white text-xs font-bold p-1 uppercase">✕</button>
             </div>
@@ -1138,13 +1138,13 @@ return (
                   {(['low', 'medium', 'high', 'critical'] as const).map((p) => {
                     const isActive = newPriority === p;
                     const colors = {
-                      low: 'text-zinc-400 border-zinc-800 bg-zinc-900',
+                      low: 'text-zinc-600 border-zinc-800 bg-zinc-900',
                       medium: 'text-blue-400 border-blue-900 bg-blue-950/30',
                       high: 'text-amber-400 border-amber-900 bg-amber-950/30',
                       critical: 'text-rose-400 border-rose-900 bg-rose-950/30 shadow-[0_0_10px_rgba(225,29,72,0.2)] animate-pulse'
                     };
                     return (
-                      <button key={p} type="button" onClick={() => setNewPriority(p)} className={`flex-1 py-1.5 px-1 border rounded text-[9px] font-bold uppercase transition-all ${isActive ? colors[p] : 'bg-zinc-950 border-zinc-900 text-zinc-600 hover:border-zinc-700'}`}>
+                      <button key={p} type="button" onClick={() => setNewPriority(p)} className={`flex-1 py-1.5 px-1 border rounded text-[9px] font-bold uppercase transition-all ${isActive ? colors[p] : 'bg-[#0a0500] border-zinc-900 text-zinc-600 hover:border-zinc-700'}`}>
                         {p}
                       </button>
                     );
@@ -1161,12 +1161,12 @@ return (
                     if (!creationChecklistInput.trim()) return;
                     setNewChecklist([...newChecklist, { id: crypto.randomUUID(), text: creationChecklistInput.trim(), isCompleted: false }]);
                     setCreationChecklistInput('');
-                  }} className="px-3 bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white rounded uppercase text-[9px] font-bold transition-colors">Add</button>
+                  }} className="px-3 bg-zinc-900 border border-zinc-800 text-zinc-600 hover:text-white rounded uppercase text-[9px] font-bold transition-colors">Add</button>
                 </div>
                 {newChecklist.length > 0 && (
                   <div className="bg-zinc-900/50 border border-zinc-900 rounded p-1.5 max-h-24 overflow-y-auto space-y-1 mt-1">
                     {newChecklist.map((item) => (
-                      <div key={item.id} className="text-zinc-400 text-[9px] uppercase tracking-wide flex justify-between items-center bg-zinc-950 px-2 py-1 rounded border border-zinc-900">
+                      <div key={item.id} className="text-zinc-600 text-[9px] uppercase tracking-wide flex justify-between items-center bg-[#0a0500] px-2 py-1 rounded border border-zinc-900">
                         <span>• {item.text}</span>
                         <button type="button" onClick={() => setNewChecklist(newChecklist.filter(i => i.id !== item.id))} className="text-rose-500 hover:text-rose-400 text-[8px] font-bold ml-1 uppercase">Remove</button>
                       </div>
@@ -1182,9 +1182,9 @@ return (
                   {(['anyone', 'just-me', 'custom'] as AccessStrategy[]).map((strat) => {
                     const isActive = newEditStrategy === strat;
                     let theme = '';
-                    if (strat === 'anyone') theme = isActive ? 'bg-blue-950/60 text-blue-400 border-blue-800/80 shadow-[0_0_8px_rgba(59,130,246,0.15)]' : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:text-zinc-400';
-                    if (strat === 'just-me') theme = isActive ? 'bg-amber-950/60 text-amber-400 border-amber-800/80 shadow-[0_0_8px_rgba(245,158,11,0.15)]' : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:text-zinc-400';
-                    if (strat === 'custom') theme = isActive ? 'bg-rose-950/60 text-rose-400 border-rose-800/80 shadow-[0_0_8px_rgba(244,63,94,0.15)]' : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:text-zinc-400';
+                    if (strat === 'anyone') theme = isActive ? 'bg-blue-950/60 text-blue-400 border-blue-800/80 shadow-[0_0_8px_rgba(59,130,246,0.15)]' : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:text-zinc-600';
+                    if (strat === 'just-me') theme = isActive ? 'bg-amber-950/60 text-amber-400 border-amber-800/80 shadow-[0_0_8px_rgba(245,158,11,0.15)]' : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:text-zinc-600';
+                    if (strat === 'custom') theme = isActive ? 'bg-rose-950/60 text-rose-400 border-rose-800/80 shadow-[0_0_8px_rgba(244,63,94,0.15)]' : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:text-zinc-600';
                     return (
                       <button key={strat} type="button" onClick={() => setNewEditStrategy(strat)} className={`flex-1 py-1.5 px-1 border rounded text-[9px] font-bold uppercase transition-all duration-150 ${theme}`}>
                         {strat === 'anyone' ? 'Anyone' : strat === 'just-me' ? 'Creator' : 'Custom'}
@@ -1192,7 +1192,7 @@ return (
                     );
                   })}
                 </div>
-                <select value={newEditStrategy} onChange={(e) => setNewEditStrategy(e.target.value as AccessStrategy)} className="sm:hidden w-full bg-zinc-900 border border-zinc-800 rounded p-1.5 text-zinc-400 focus:outline-none uppercase font-bold">
+                <select value={newEditStrategy} onChange={(e) => setNewEditStrategy(e.target.value as AccessStrategy)} className="sm:hidden w-full bg-zinc-900 border border-zinc-800 rounded p-1.5 text-zinc-600 focus:outline-none uppercase font-bold">
                   <option value="anyone">Anyone</option>
                   <option value="just-me">Creator Only</option>
                   <option value="custom">Custom Operators</option>
@@ -1210,12 +1210,12 @@ return (
                       {TEST_USERS.map((user) => {
                         const isChecked = newPermittedEditors.includes(user.id);
                         return (
-                          <label key={user.id} className={`flex items-center justify-between px-2 py-1.5 rounded border transition-colors cursor-pointer text-[9px] font-bold ${isChecked ? 'bg-zinc-900 border-zinc-700 text-white' : 'bg-zinc-950/40 border-zinc-900 text-zinc-500 hover:border-zinc-800'}`}>
+                          <label key={user.id} className={`flex items-center justify-between px-2 py-1.5 rounded border transition-colors cursor-pointer text-[9px] font-bold ${isChecked ? 'bg-zinc-900 border-zinc-700 text-white' : 'bg-[#0a0500]/40 border-zinc-900 text-zinc-500 hover:border-zinc-800'}`}>
                             <div className="flex items-center gap-2">
                               <input type="checkbox" checked={isChecked} onChange={() => toggleSelectionUser(user.id, 'new-edit')} className="accent-blue-500 h-3 w-3 rounded bg-zinc-900 border-zinc-800 cursor-pointer" />
                               <span className="uppercase tracking-wide">{user.name}</span>
                             </div>
-                            <span className="text-[8px] px-1.5 py-0.5 rounded border border-zinc-800/80 bg-zinc-900 text-zinc-400 font-normal">{user.badge}</span>
+                            <span className="text-[8px] px-1.5 py-0.5 rounded border border-zinc-800/80 bg-zinc-900 text-zinc-600 font-normal">{user.badge}</span>
                           </label>
                         );
                       })}
@@ -1231,9 +1231,9 @@ return (
                   {(['anyone', 'just-me', 'custom'] as AccessStrategy[]).map((strat) => {
                     const isActive = newMoveStrategy === strat;
                     let theme = '';
-                    if (strat === 'anyone') theme = isActive ? 'bg-blue-950/60 text-blue-400 border-blue-800/80 shadow-[0_0_8px_rgba(59,130,246,0.15)]' : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:text-zinc-400';
-                    if (strat === 'just-me') theme = isActive ? 'bg-amber-950/60 text-amber-400 border-amber-800/80 shadow-[0_0_8px_rgba(245,158,11,0.15)]' : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:text-zinc-400';
-                    if (strat === 'custom') theme = isActive ? 'bg-rose-950/60 text-rose-400 border-rose-800/80 shadow-[0_0_8px_rgba(244,63,94,0.15)]' : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:text-zinc-400';
+                    if (strat === 'anyone') theme = isActive ? 'bg-blue-950/60 text-blue-400 border-blue-800/80 shadow-[0_0_8px_rgba(59,130,246,0.15)]' : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:text-zinc-600';
+                    if (strat === 'just-me') theme = isActive ? 'bg-amber-950/60 text-amber-400 border-amber-800/80 shadow-[0_0_8px_rgba(245,158,11,0.15)]' : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:text-zinc-600';
+                    if (strat === 'custom') theme = isActive ? 'bg-rose-950/60 text-rose-400 border-rose-800/80 shadow-[0_0_8px_rgba(244,63,94,0.15)]' : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:text-zinc-600';
                     return (
                       <button key={strat} type="button" onClick={() => setNewMoveStrategy(strat)} className={`flex-1 py-1.5 px-1 border rounded text-[9px] font-bold uppercase transition-all duration-150 ${theme}`}>
                         {strat === 'anyone' ? 'Anyone' : strat === 'just-me' ? 'Creator' : 'Custom'}
@@ -1241,7 +1241,7 @@ return (
                     );
                   })}
                 </div>
-                <select value={newMoveStrategy} onChange={(e) => setNewMoveStrategy(e.target.value as AccessStrategy)} className="sm:hidden w-full bg-zinc-900 border border-zinc-800 rounded p-1.5 text-zinc-400 focus:outline-none uppercase font-bold">
+                <select value={newMoveStrategy} onChange={(e) => setNewMoveStrategy(e.target.value as AccessStrategy)} className="sm:hidden w-full bg-zinc-900 border border-zinc-800 rounded p-1.5 text-zinc-600 focus:outline-none uppercase font-bold">
                   <option value="anyone">Anyone</option>
                   <option value="just-me">Creator Only</option>
                   <option value="custom">Custom Operators</option>
@@ -1252,7 +1252,7 @@ return (
 
             {/* SUBMISSION OPERATIONS ROW BAR */}
             <div className="p-4 bg-zinc-900/30 border-t border-zinc-900 flex justify-end gap-1.5 shrink-0">
-              <button onClick={() => setIsAddingTask(false)} className="px-3 py-1.5 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-400 hover:text-zinc-200 uppercase rounded cursor-pointer transition-colors">Cancel</button>
+              <button onClick={() => setIsAddingTask(false)} className="px-3 py-1.5 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-600 hover:text-zinc-200 uppercase rounded cursor-pointer transition-colors">Cancel</button>
               <button onClick={saveNewTask} disabled={!newTitle.trim()} className={`px-4 py-1.5 border rounded font-bold uppercase transition-all duration-150 ${newTitle.trim() ? 'bg-blue-950/40 border-blue-800 text-blue-400 shadow-[0_0_10px_rgba(59,130,246,0.1)] hover:bg-blue-900/40 hover:text-blue-300 cursor-pointer' : 'bg-zinc-900/40 border-zinc-900 text-zinc-600 cursor-not-allowed'}`}>Save Task</button>
             </div>
           </div>
@@ -1265,14 +1265,14 @@ return (
   {/* --- EDIT TASK MODAL OVERLAY --- */}
       {editingTask && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm font-mono animate-fadeIn">
-          <div className="w-full max-w-md bg-zinc-950 border border-zinc-800 rounded-xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
+          <div className="w-full max-w-md bg-[#0a0500] border border-zinc-800 rounded-xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
             
             <div className="h-1 w-full bg-zinc-500" />
             
             <div className="p-4 border-b border-zinc-900 flex justify-between items-center bg-zinc-900/20">
               <div>
                 <h3 className="text-xs font-black text-white uppercase tracking-wider">Modify Task Node</h3>
-                <p className="text-[9px] text-zinc-500 uppercase mt-0.5">Target: <span className="text-zinc-400 font-bold">{editingTask.id}</span></p>
+                <p className="text-[9px] text-zinc-500 uppercase mt-0.5">Target: <span className="text-zinc-600 font-bold">{editingTask.id}</span></p>
               </div>
               <button onClick={() => setEditingTask(null)} className="text-zinc-500 hover:text-white text-xs font-bold p-1 uppercase">✕</button>
             </div>
@@ -1303,7 +1303,7 @@ return (
               {(['low', 'medium', 'high', 'critical'] as const).map((p) => {
                 const isActive = newPriority === p; // Change to editPriority in the Edit modal!
                 const colors = {
-                  low: 'text-zinc-400 border-zinc-800 bg-zinc-900',
+                  low: 'text-zinc-600 border-zinc-800 bg-zinc-900',
                   medium: 'text-blue-400 border-blue-900 bg-blue-950/30',
                   high: 'text-amber-400 border-amber-900 bg-amber-950/30',
                   critical: 'text-rose-400 border-rose-900 bg-rose-950/30 shadow-[0_0_10px_rgba(225,29,72,0.2)] animate-pulse'
@@ -1314,7 +1314,7 @@ return (
                     key={p}
                     type="button"
                     onClick={() => setNewPriority(p)} // Change to setEditPriority in the Edit modal!
-                    className={`flex-1 py-1.5 px-1 border rounded text-[9px] font-bold uppercase transition-all ${isActive ? colors[p] : 'bg-zinc-950 border-zinc-900 text-zinc-600 hover:border-zinc-700'}`}
+                    className={`flex-1 py-1.5 px-1 border rounded text-[9px] font-bold uppercase transition-all ${isActive ? colors[p] : 'bg-[#0a0500] border-zinc-900 text-zinc-600 hover:border-zinc-700'}`}
                   >
                     {p}
                   </button>
@@ -1341,7 +1341,7 @@ return (
                       setEditChecklist([...editChecklist, { id: crypto.randomUUID(), text: newChecklistItemText.trim(), isCompleted: false }]);
                       setNewChecklistItemText('');
                     }}
-                    className="px-3 bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white rounded uppercase text-[9px] font-bold"
+                    className="px-3 bg-zinc-900 border border-zinc-800 text-zinc-600 hover:text-white rounded uppercase text-[9px] font-bold"
                   >
                     Add
                   </button>
@@ -1349,7 +1349,7 @@ return (
                 {editChecklist.length > 0 && (
                   <div className="bg-zinc-900/50 border border-zinc-900 rounded p-1.5 max-h-24 overflow-y-auto space-y-1 mt-1">
                     {editChecklist.map((item) => (
-                      <div key={item.id} className="text-zinc-400 text-[9px] uppercase tracking-wide flex justify-between items-center bg-zinc-950 px-2 py-1 rounded border border-zinc-900">
+                      <div key={item.id} className="text-zinc-600 text-[9px] uppercase tracking-wide flex justify-between items-center bg-[#0a0500] px-2 py-1 rounded border border-zinc-900">
                         <span className={item.isCompleted ? 'line-through text-zinc-600' : ''}>• {item.text}</span>
                         <button type="button" onClick={() => setEditChecklist(editChecklist.filter(i => i.id !== item.id))} className="text-rose-500 hover:text-rose-400 text-[8px] font-bold ml-1 uppercase">Remove</button>
                       </div>
@@ -1360,7 +1360,7 @@ return (
             </div>
 
             <div className="p-4 bg-zinc-900/30 border-t border-zinc-900 flex justify-end gap-1.5 shrink-0">
-              <button onClick={() => setEditingTask(null)} className="px-3 py-1.5 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-400 hover:text-zinc-200 uppercase rounded cursor-pointer transition-colors">Cancel</button>
+              <button onClick={() => setEditingTask(null)} className="px-3 py-1.5 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-600 hover:text-zinc-200 uppercase rounded cursor-pointer transition-colors">Cancel</button>
               <button onClick={saveEditedTask} disabled={!editTitle.trim()} className="px-4 py-1.5 border rounded font-bold uppercase transition-all duration-150 bg-blue-950/40 border-blue-800 text-blue-400 hover:bg-blue-900/40 hover:text-blue-300">Update Task</button>
             </div>
           </div>
@@ -1369,14 +1369,14 @@ return (
 
       {/* --- HANDOFF RELEASE FLOW DIALOG WINDOW --- */}
       {handoffTask && (
-        <div className="fixed inset-0 bg-zinc-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 font-mono">
+        <div className="fixed inset-0 bg-[#0a0500]/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 font-mono">
           <div className="w-full max-w-sm bg-zinc-900 border border-zinc-800 rounded-xl p-5 shadow-2xl">
             <h3 className="text-[11px] font-bold text-white uppercase tracking-wider mb-2">Release Workspace Token</h3>
             <p className="text-zinc-500 text-[10px] mb-4">Provide clear handover summary parameters before abandoning the active testing operations cycle context.</p>
             <div className="space-y-3">
-              <textarea rows={3} value={handoffNotes} onChange={(e) => setHandoffNotes(e.target.value)} placeholder="Provide optional notes..." className="w-full bg-zinc-950 border border-zinc-800 rounded px-2.5 py-1.5 text-zinc-200 text-xs outline-none resize-none" />
+              <textarea rows={3} value={handoffNotes} onChange={(e) => setHandoffNotes(e.target.value)} placeholder="Provide optional notes..." className="w-full bg-[#0a0500] border border-zinc-800 rounded px-2.5 py-1.5 text-zinc-200 text-xs outline-none resize-none" />
               <div className="flex items-center justify-end gap-2">
-                <button onClick={() => setHandoffTask(null)} className="px-3 py-1.5 bg-zinc-950 border border-zinc-800 text-zinc-400 hover:text-white rounded text-[9px] uppercase cursor-pointer">Cancel</button>
+                <button onClick={() => setHandoffTask(null)} className="px-3 py-1.5 bg-[#0a0500] border border-zinc-800 text-zinc-600 hover:text-white rounded text-[9px] uppercase cursor-pointer">Cancel</button>
                 <button onClick={commitReleaseHandoff} className="px-3 py-1.5 bg-amber-500 text-zinc-950 font-bold hover:bg-amber-400 rounded text-[9px] uppercase cursor-pointer">Confirm Release</button>
               </div>
             </div>
@@ -1386,7 +1386,7 @@ return (
 
       {/* --- AUDITING TRANSACTION HISTORY LOG MODAL WINDOW --- */}
       {activeHistoryTask && (
-        <div className="fixed inset-0 bg-zinc-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 font-mono">
+        <div className="fixed inset-0 bg-[#0a0500]/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 font-mono">
           <div className="w-full max-w-md bg-zinc-900 border border-zinc-800 rounded-xl p-5 shadow-2xl max-h-[80vh] flex flex-col overflow-hidden">
             <h3 className="text-[11px] font-bold text-white uppercase tracking-wider mb-2 shrink-0">Security Audit Transaction History Ledger</h3>
             <p className="text-zinc-500 text-[10px] mb-4 shrink-0">Historic ledger trace logs for task reference: <span className="text-zinc-300 font-bold">{activeHistoryTask.title}</span></p>
@@ -1397,19 +1397,19 @@ return (
               ) : (
                 
     activeHistoryTask.history.map((log: AuditLog, idx: number) => (
-      <div key={idx} className="p-2 bg-zinc-950 rounded border border-zinc-800 text-[10px]">
+      <div key={idx} className="p-2 bg-[#0a0500] rounded border border-zinc-800 text-[10px]">
                     <div className="flex justify-between text-zinc-500 font-bold text-[9px] mb-1">
                       <span>Operator: {log.movedBy}</span>
                       <span>{log.timestamp ? new Date(log.timestamp).toLocaleTimeString() : 'Unknown Time'}</span>
                     </div>
                     {log.actionType && <div className="text-blue-400 font-bold text-[9px] uppercase mb-0.5">Action: {log.actionType}</div>}
-                    <p className="text-zinc-400 font-mono leading-relaxed">{log.notes || 'No contextual telemetry notes appended to this action row.'}</p>
+                    <p className="text-zinc-600 font-mono leading-relaxed">{log.notes || 'No contextual telemetry notes appended to this action row.'}</p>
                   </div>
                 ))
               )}
             </div>
             
-            <button onClick={() => setActiveHistoryTask(null)} className="mt-4 w-full py-1.5 bg-zinc-950 hover:bg-zinc-800 text-zinc-400 hover:text-white border border-zinc-800 rounded text-[10px] uppercase font-bold cursor-pointer shrink-0">Dismiss View Ledger</button>
+            <button onClick={() => setActiveHistoryTask(null)} className="mt-4 w-full py-1.5 bg-[#0a0500] hover:bg-zinc-800 text-zinc-600 hover:text-white border border-zinc-800 rounded text-[10px] uppercase font-bold cursor-pointer shrink-0">Dismiss View Ledger</button>
           </div>
         </div>
       )}
