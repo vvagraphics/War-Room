@@ -15,7 +15,7 @@ let supabaseClient: any = null;
 const getSupabase = () => {
   if (!supabaseClient && typeof window !== 'undefined' && SUPABASE_URL && SUPABASE_ANON_KEY) {
     supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-      auth: { persistSession: false, autoRefreshToken: false }
+      auth: { persistSession: true, autoRefreshToken: true }
     });
   }
   return supabaseClient;
@@ -39,6 +39,19 @@ const STRATEGY_THEMES: Record<AccessStrategy, { text: string; bgCard: string }> 
   custom: { text: 'text-sky-400', bgCard: 'border-l-4 border-l-sky-500/70' }
 };
 
+// --- PREMADE DEMO ENVIRONMENT DATA ---
+const INITIAL_DEMO_TASKS: Task[] = [
+  {
+    id: 'demo-1', title: 'Analyze Radar Telemetry', description: 'Review the incoming ping data from sector 7.', status: 'todo', position: 1000, priority: 'medium', createdBy: 'dev_alpha_01', createdByName: 'Alpha_Engineer', history: [], editStrategy: 'anyone', moveStrategy: 'anyone', permittedEditors: [], permittedMovers: [], checklist: [{ id: 'chk-1', text: 'Scan frequencies', isCompleted: false }]
+  },
+  {
+    id: 'demo-2', title: 'Patch Firewall Breach', description: 'Main server is experiencing unauthorized access attempts.', status: 'in-progress', position: 2000, priority: 'critical', createdBy: 'dev_beta_02', createdByName: 'Beta_Engineer', history: [], editStrategy: 'anyone', moveStrategy: 'anyone', permittedEditors: [], permittedMovers: [], checklist: []
+  },
+  {
+    id: 'demo-3', title: 'Initialize Comm-Link Auth', description: 'Ensure voice comms bypass the proxy.', status: 'done', position: 3000, priority: 'high', createdBy: 'dev_alpha_01', createdByName: 'Alpha_Engineer', history: [], editStrategy: 'anyone', moveStrategy: 'anyone', permittedEditors: [], permittedMovers: [], checklist: []
+  }
+];
+
 export default function WarRoom() {
   // --- STATE & INITIALIZATION ---
   const [mounted, setMounted] = useState<boolean>(false);
@@ -47,6 +60,13 @@ export default function WarRoom() {
   const [currentUser, setCurrentUser] = useState<Profile | null>(null);
   const [timeTicker, setTimeTicker] = useState<number>(Date.now());
   const [savedTasks, setSavedTasks] = useState<Record<string, boolean>>({});
+
+  // Auth & Environment State
+  const [isDemoMode, setIsDemoMode] = useState<boolean>(true);
+  const [loginTab, setLoginTab] = useState<'demo' | 'live'>('demo');
+  const [liveEmail, setLiveEmail] = useState('');
+  const [livePassword, setLivePassword] = useState('');
+  const [authLoading, setAuthLoading] = useState(false);
 
   // Comm-Link (Audio) State
   const [recordingTaskId, setRecordingTaskId] = useState<string | null>(null);
@@ -110,6 +130,10 @@ export default function WarRoom() {
   const [handoffTask, setHandoffTask] = useState<Task | null>(null);
   const [handoffNotes, setHandoffNotes] = useState<string>('');
 
+  // Mobile Swipe State
+  const [touchStart, setTouchStart] = useState<number | null>(null);
+  const [touchEnd, setTouchEnd] = useState<number | null>(null);
+
   const containerRef = useRef<HTMLDivElement>(null);
   const lastBroadcast = useRef<number>(0);
   const interactionChannelRef = useRef<any>(null);
@@ -133,32 +157,23 @@ export default function WarRoom() {
     permittedMovers: item.permitted_movers || item.permittedMovers || [],
     checklist: item.checklist || [],
     activeSession: item.active_session || item.activeSession || undefined,
-    voiceMemo: item.voice_memo || item.voiceMemo || undefined
+    voiceMemo: item.voice_memo || item.voiceMemo || undefined,
+    priority: item.priority || 'medium'
   });
 
   // --- NATIVE API INTEGRATION LOOP ---
   useEffect(() => {
     setMounted(true);
-    if (typeof window !== 'undefined') {
-      const savedUser = localStorage.getItem('warroom_user_profile');
-      if (savedUser) {
-        try {
-          const parsed = JSON.parse(savedUser);
-          if (parsed && parsed.id) {
-            const staticMatch = TEST_USERS.find(u => u.id === parsed.id);
-            if (staticMatch) parsed.role = staticMatch.role;
-            setCurrentUser(parsed);
-          }
-        } catch (e) {
-          console.error('Failed to parse user session profile:', e);
-        }
-      }
+    if (!currentUser) return;
+
+    if (isDemoMode) {
+      setTasks(INITIAL_DEMO_TASKS);
+      return;
     }
 
     const supabase = getSupabase();
     if (!supabase) return;
 
-    // 1. Add { data: any, error: any } to the .then() block
     supabase
       .from('tasks')
       .select('*')
@@ -168,7 +183,6 @@ export default function WarRoom() {
         if (data) setTasks(data.map(normalizeTaskPayload));
       });
 
-    // 2. Add (payload: any) to the postgres_changes listener
     const dbChannel = supabase
       .channel('tasks-realtime-sync')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, (payload: any) => {
@@ -209,15 +223,12 @@ export default function WarRoom() {
         } else if (payload.type === 'defcon') {
           setDefconLevel(payload.payload.level);
           if (payload.payload.level === 1) triggerNativeAlarmNotification();
-          
-        // ADD THIS NEW BLOCK:
         } else if (payload.type === 'task-hover') {
           setTaskHeat(prev => ({
             ...prev,
             [payload.payload.taskId]: Math.min((prev[payload.payload.taskId] || 0) + 15, 100)
           }));
         }
-        
       })
       .subscribe();
 
@@ -238,43 +249,39 @@ export default function WarRoom() {
             };
           }
         });
-        setPresences((prev) => {
-          const merged = { ...prev };
-          Object.keys(merged).forEach((id) => {
-            if (!activeUsers[id]) delete merged[id];
-          });
-          return { ...merged, ...activeUsers };
-        });
+        setPresences(activeUsers);
       })
       .subscribe();
-
-    const tickerInterval = setInterval(() => {
-      setTimeTicker(Date.now());
-    }, 1000);
 
     return () => {
       supabase.removeChannel(dbChannel);
       if (interactionChannelRef.current) supabase.removeChannel(interactionChannelRef.current);
       if (presenceChannelRef.current) supabase.removeChannel(presenceChannelRef.current);
-      clearInterval(tickerInterval);
       if (audioCtxRef.current) audioCtxRef.current.close();
     };
+  }, [currentUser, isDemoMode]);
+
+  useEffect(() => {
+    const tickerInterval = setInterval(() => {
+      setTimeTicker(Date.now());
+    }, 1000);
+    return () => clearInterval(tickerInterval);
   }, []);
 
   useEffect(() => {
-    if (!presenceChannelRef.current || !currentUser) return;
+    if (!presenceChannelRef.current || !currentUser || isDemoMode) return;
     presenceChannelRef.current.track({
       id: currentUser.id,
       name: currentUser.name,
       color: currentUser.color,
       online_at: new Date().toISOString()
     });
-  }, [currentUser]);
+  }, [currentUser, isDemoMode]);
 
-  // Session Timeout Heartbeat Loop (Strict 1 minute testing limit)
+  // Session Timeout Heartbeat Loop
   useEffect(() => {
     const checkDeadSessionsAndAlert = async () => {
-      if (!currentUser) return;
+      if (!currentUser || isDemoMode) return; // Skip in demo mode
       const testingTimeoutThreshold = 60000;
       const warningAudioHorizon = 30000;
       const now = Date.now();
@@ -288,8 +295,6 @@ export default function WarRoom() {
           const contextAge = now - lastCheckIn;
 
           if (contextAge > testingTimeoutThreshold) {
-            // FIX: Only Admins are authorized to sweep the database for dead locks
-            // This prevents 5 clients from trying to clear the lock simultaneously
             if (currentUser.role === 'admin') {
               const systemLog: AuditLog = {
                 movedBy: 'System Auto-Drop',
@@ -321,7 +326,7 @@ export default function WarRoom() {
 
     const runCheck = setInterval(checkDeadSessionsAndAlert, 1000);
     return () => clearInterval(runCheck);
-  }, [tasks, currentUser]);
+  }, [tasks, currentUser, isDemoMode]);
 
   // Fog of War: Cooldown Loop
   useEffect(() => {
@@ -331,7 +336,7 @@ export default function WarRoom() {
         let changed = false;
         Object.keys(next).forEach((id) => {
           if (next[id] > 0) {
-            next[id] = Math.max(0, next[id] - 5); // Cool down by 5 points
+            next[id] = Math.max(0, next[id] - 5);
             changed = true;
           }
         });
@@ -369,6 +374,26 @@ export default function WarRoom() {
       playToneNode(660, 0.25, 0.2);
     } catch (err) {
       console.warn('Audio feedback blocked by browser interaction rules:', err);
+    }
+  };
+
+  // --- MOBILE SWIPE HANDLERS ---
+  const handleTouchStart = (e: React.TouchEvent) => {
+    setTouchEnd(null);
+    setTouchStart(e.targetTouches[0].clientX);
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => setTouchEnd(e.targetTouches[0].clientX);
+
+  const handleTouchEnd = () => {
+    if (!touchStart || !touchEnd) return;
+    const distance = touchStart - touchEnd;
+    const isLeftSwipe = distance > 50;
+    const isRightSwipe = distance < -50;
+    if (isLeftSwipe || isRightSwipe) {
+      const currentIndex = COLUMNS.findIndex(c => c.id === activeMobileTab);
+      if (isLeftSwipe && currentIndex < COLUMNS.length - 1) setActiveMobileTab(COLUMNS[currentIndex + 1].id);
+      if (isRightSwipe && currentIndex > 0) setActiveMobileTab(COLUMNS[currentIndex - 1].id);
     }
   };
 
@@ -415,25 +440,27 @@ export default function WarRoom() {
         reader.readAsDataURL(audioBlob);
         reader.onloadend = async () => {
           const base64Audio = reader.result as string;
-          const supabase = getSupabase();
-          if (supabase) {
-            // Save the audio directly to the task
-            await supabase.from('tasks').update({ voice_memo: base64Audio }).eq('id', parseInt(taskId, 10));
+          
+          setTasks(prev => prev.map(t => t.id === taskId ? { ...t, voiceMemo: base64Audio } : t));
+
+          if (!isDemoMode) {
+            const supabase = getSupabase();
+            if (supabase) {
+              await supabase.from('tasks').update({ voice_memo: base64Audio }).eq('id', parseInt(taskId, 10));
+            }
           }
         };
-        // Turn off the red recording dot on the browser tab
         stream.getTracks().forEach(track => track.stop());
       };
 
       recorder.start();
       setRecordingTaskId(taskId);
       setTimeout(() => {
-  if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
-    mediaRecorderRef.current.stop();
-    setRecordingTaskId(null);
-    console.log("Auto-stopped recording to protect database storage quotas.");
-  }
-}, 5000);
+        if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+          mediaRecorderRef.current.stop();
+          setRecordingTaskId(null);
+        }
+      }, 5000);
     } catch (err) {
       console.error("Mic access denied", err);
       alert("Permission Denied: Microphone access is required to use the Comm-Link.");
@@ -454,10 +481,7 @@ export default function WarRoom() {
 
   const handleMouseMove = (e: React.MouseEvent) => {
     const now = Date.now();
-    // if (!containerRef.current || !currentUser || !interactionChannelRef.current || now - lastBroadcast.current < 50) return;
-
-    
-if (!containerRef.current || !currentUser || !interactionChannelRef.current || now - lastBroadcast.current < 200) return;
+    if (isDemoMode || !containerRef.current || !currentUser || !interactionChannelRef.current || now - lastBroadcast.current < 200) return;
     lastBroadcast.current = now;
     const rect = containerRef.current.getBoundingClientRect();
     interactionChannelRef.current.send({
@@ -468,53 +492,39 @@ if (!containerRef.current || !currentUser || !interactionChannelRef.current || n
         userId: currentUser.id,
         userName: currentUser.name,
         color: currentUser.color,
-        payload: {
-          x: ((e.clientX - rect.left) / rect.width) * 100,
-          y: ((e.clientY - rect.top) / rect.height) * 100
-        }
+        payload: { x: ((e.clientX - rect.left) / rect.width) * 100, y: ((e.clientY - rect.top) / rect.height) * 100 }
       },
     });
   };
 
-  //send the DEFCON signal
   const executeDefconChange = (level: number) => {
-    if (!currentUser || currentUser.role !== 'admin' || !interactionChannelRef.current) return;
-    setDefconLevel(level); // Update locally
+    if (!currentUser || currentUser.role !== 'admin') return;
+    setDefconLevel(level);
     
-    // Broadcast to everyone else
-    interactionChannelRef.current.send({
-      type: 'broadcast',
-      event: 'ui-event',
-      payload: {
-        type: 'defcon',
-        userId: currentUser.id,
-        userName: currentUser.name,
-        payload: { level }
-      },
-    });
+    if (!isDemoMode && interactionChannelRef.current) {
+      interactionChannelRef.current.send({
+        type: 'broadcast',
+        event: 'ui-event',
+        payload: { type: 'defcon', userId: currentUser.id, userName: currentUser.name, payload: { level } },
+      });
+    }
 
     if (level === 1) triggerNativeAlarmNotification();
   };
 
   const handleTaskHover = (taskId: string) => {
-    if (!interactionChannelRef.current || !currentUser) return;
-    
-    // Instantly heat it up locally (Max heat is 100)
     setTaskHeat(prev => ({ ...prev, [taskId]: Math.min((prev[taskId] || 0) + 15, 100) }));
-    
-    // Broadcast to the rest of the War Room
-    interactionChannelRef.current.send({
-      type: 'broadcast',
-      event: 'ui-event',
-      payload: { type: 'task-hover', userId: currentUser.id, payload: { taskId } },
-    });
+    if (!isDemoMode && interactionChannelRef.current && currentUser) {
+      interactionChannelRef.current.send({
+        type: 'broadcast',
+        event: 'ui-event',
+        payload: { type: 'task-hover', userId: currentUser.id, payload: { taskId } },
+      });
+    }
   };
 
   const handleDragStart = (e: React.DragEvent, task: Task) => {
-    if (!canMoveTask(task)) {
-      e.preventDefault();
-      return;
-    }
+    if (!canMoveTask(task)) { e.preventDefault(); return; }
     e.dataTransfer.setData('text/plain', task.id);
   };
 
@@ -524,16 +534,11 @@ if (!containerRef.current || !currentUser || !interactionChannelRef.current || n
     if (!currentTask || currentTask.status === targetStatus) return;
 
     if (targetStatus === 'done' && currentUser.role === 'guest') {
-      alert('Permission Denied: Guests cannot move tasks into Done.');
-      return;
+      alert('Permission Denied: Guests cannot move tasks into Done.'); return;
     }
     if (currentTask.status === 'done' && currentUser.role !== 'admin') {
-      alert('Permission Denied: Only Admins can move tasks back out of the Done column.');
-      return;
+      alert('Permission Denied: Only Admins can move tasks back out of the Done column.'); return;
     }
-
-    const supabase = getSupabase();
-    if (!supabase) return;
 
     const columnTasks = tasks.filter((t) => t.status === targetStatus);
     const newPosition = columnTasks.length > 0 ? Math.max(...columnTasks.map((t) => t.position)) + 1000 : 1000;
@@ -552,63 +557,38 @@ if (!containerRef.current || !currentUser || !interactionChannelRef.current || n
     setTasks((prev) => prev.map((t) => (t.id === taskId ? { ...t, status: targetStatus, position: newPosition, lastMovedBy: currentUser.name, history: mergedHistory } : t)).sort((a, b) => a.position - b.position));
     setActiveMoveMenuId(null);
 
-    await supabase
-      .from('tasks')
-      .update({
-        status: targetStatus,
-        position: newPosition,
-        last_moved_by: currentUser.name,
-        history: mergedHistory
-      })
-      .eq('id', parseInt(taskId, 10));
-  };
-
-  const handleDrop = (e: React.DragEvent, targetStatus: TaskStatus) => {
-    e.preventDefault();
-    const taskId = e.dataTransfer.getData('text/plain');
-    if (taskId) executeMoveOperation(taskId, targetStatus);
+    if (!isDemoMode) {
+      const supabase = getSupabase();
+      if (supabase) {
+        await supabase.from('tasks').update({
+          status: targetStatus, position: newPosition, last_moved_by: currentUser.name, history: mergedHistory
+        }).eq('id', parseInt(taskId, 10));
+      }
+    }
   };
 
   const claimWorkSession = async (task: Task) => {
     if (!currentUser || task.activeSession) return;
-    const supabase = getSupabase();
-    if (!supabase) return;
+    const sessionPayload = { userId: currentUser.id, userName: currentUser.name, startedAt: new Date().toISOString(), lastCheckedInAt: new Date().toISOString() };
+    const log: AuditLog = { movedBy: currentUser.name, fromStatus: task.status, toStatus: task.status, timestamp: new Date().toISOString(), notes: `${currentUser.name} started working on this task.` };
 
-    const sessionPayload = {
-      userId: currentUser.id,
-      userName: currentUser.name,
-      startedAt: new Date().toISOString(),
-      lastCheckedInAt: new Date().toISOString()
-    };
+    setTasks(prev => prev.map(t => t.id === task.id ? { ...t, activeSession: sessionPayload, history: [log, ...(t.history || [])] } : t));
 
-    const log: AuditLog = {
-      movedBy: currentUser.name,
-      fromStatus: task.status,
-      toStatus: task.status,
-      timestamp: new Date().toISOString(),
-      notes: `${currentUser.name} started working on this task.`
-    };
-
-    await supabase
-      .from('tasks')
-      .update({ active_session: sessionPayload, history: [log, ...(task.history || [])] })
-      .eq('id', parseInt(task.id, 10));
+    if (!isDemoMode) {
+      const supabase = getSupabase();
+      if (supabase) await supabase.from('tasks').update({ active_session: sessionPayload, history: [log, ...(task.history || [])] }).eq('id', parseInt(task.id, 10));
+    }
   };
 
   const pingCheckIn = async (task: Task) => {
     if (!currentUser || !task.activeSession || task.activeSession.userId !== currentUser.id) return;
-    const supabase = getSupabase();
-    if (!supabase) return;
+    const updatedSession = { ...task.activeSession, lastCheckedInAt: new Date().toISOString() };
+    setTasks(prev => prev.map(t => t.id === task.id ? { ...t, activeSession: updatedSession } : t));
 
-    const updatedSession = {
-      ...task.activeSession,
-      lastCheckedInAt: new Date().toISOString()
-    };
-
-    await supabase
-      .from('tasks')
-      .update({ active_session: updatedSession })
-      .eq('id', parseInt(task.id, 10));
+    if (!isDemoMode) {
+      const supabase = getSupabase();
+      if (supabase) await supabase.from('tasks').update({ active_session: updatedSession }).eq('id', parseInt(task.id, 10));
+    }
   };
 
   const startReleaseHandoff = (task: Task) => {
@@ -618,9 +598,6 @@ if (!containerRef.current || !currentUser || !interactionChannelRef.current || n
 
   const commitReleaseHandoff = async () => {
     if (!handoffTask || !currentUser) return;
-    const supabase = getSupabase();
-    if (!supabase) return;
-
     const systemLog: AuditLog = {
       movedBy: currentUser.name,
       fromStatus: handoffTask.status,
@@ -630,11 +607,12 @@ if (!containerRef.current || !currentUser || !interactionChannelRef.current || n
       notes: handoffNotes.trim() ? handoffNotes.trim() : 'Session released.'
     };
 
-    await supabase
-      .from('tasks')
-      .update({ active_session: null, history: [systemLog, ...(handoffTask.history || [])] })
-      .eq('id', parseInt(handoffTask.id, 10));
+    setTasks(prev => prev.map(t => t.id === handoffTask.id ? { ...t, activeSession: undefined, history: [systemLog, ...(t.history || [])] } : t));
 
+    if (!isDemoMode) {
+      const supabase = getSupabase();
+      if (supabase) await supabase.from('tasks').update({ active_session: null, history: [systemLog, ...(handoffTask.history || [])] }).eq('id', parseInt(handoffTask.id, 10));
+    }
     setHandoffTask(null);
   };
 
@@ -642,85 +620,58 @@ if (!containerRef.current || !currentUser || !interactionChannelRef.current || n
     if (!currentUser || isSoftLocked(task)) return;
 
     const updatedChecklist = task.checklist.map((item) => {
-      if (item.id === itemId) {
-        return {
-          ...item,
-          isCompleted: !item.isCompleted,
-          updatedBy: currentUser.id,
-          updatedByName: currentUser.name,
-          updatedAt: new Date().toISOString()
-        };
-      }
+      if (item.id === itemId) return { ...item, isCompleted: !item.isCompleted, updatedBy: currentUser.id, updatedByName: currentUser.name, updatedAt: new Date().toISOString() };
       return item;
     });
 
-    const supabase = getSupabase();
-    if (!supabase) return;
+    setTasks(prev => prev.map(t => t.id === task.id ? { ...t, checklist: updatedChecklist } : t));
 
-    await supabase
-      .from('tasks')
-      .update({ checklist: updatedChecklist })
-      .eq('id', parseInt(task.id, 10));
+    if (!isDemoMode) {
+      const supabase = getSupabase();
+      if (supabase) await supabase.from('tasks').update({ checklist: updatedChecklist }).eq('id', parseInt(task.id, 10));
+    }
   };
 
   const saveNewTask = async () => {
     if (!newTitle.trim() || !currentUser) return;
-
-    // ==========================================
-    // ADD YOUR PERMISSION CONTROL CHECK HERE:
-    // ==========================================
-    if (currentUser.role === 'guest') {
-      alert("Permission Denied: Guests are not allowed to create new tasks.");
-      return;
-    }
-
-    const supabase = getSupabase();
-    if (!supabase) return;
+    if (currentUser.role === 'guest') { alert("Permission Denied: Guests cannot create tasks."); return; }
 
     const columnTasks = tasks.filter((t) => t.status === addTaskStatus);
-    const position = columnTasks.length > 0 ?
-      Math.max(...columnTasks.map((t) => t.position)) + 1000 : 1000;
+    const position = columnTasks.length > 0 ? Math.max(...columnTasks.map((t) => t.position)) + 1000 : 1000;
 
-    await supabase.from('tasks').insert([{
-      title: newTitle,
-      description: newDesc,
-      status: addTaskStatus,
-      position,
-      priority: newPriority, 
-      deadline: newDeadline ? new Date(newDeadline).toISOString() : null, 
-      created_by: currentUser.id,
-      created_by_name: currentUser.name,
-      edit_strategy: newEditStrategy,
-      move_strategy: newMoveStrategy,
-      permitted_editors: newEditStrategy === 'custom' ? newPermittedEditors : [],
-      permitted_movers: newMoveStrategy === 'custom' ? newPermittedMovers : [],
-      checklist: newChecklist,
-      history: []
-    }]);
+    const newTaskObj: Task = {
+      id: isDemoMode ? crypto.randomUUID() : Math.random().toString(),
+      title: newTitle, description: newDesc, status: addTaskStatus, position, priority: newPriority, deadline: newDeadline ? new Date(newDeadline).toISOString() : undefined, createdBy: currentUser.id, createdByName: currentUser.name, editStrategy: newEditStrategy, moveStrategy: newMoveStrategy, permittedEditors: newEditStrategy === 'custom' ? newPermittedEditors : [], permittedMovers: newMoveStrategy === 'custom' ? newPermittedMovers : [], checklist: newChecklist, history: []
+    };
 
+    if (isDemoMode) {
+      setTasks(prev => [...prev, newTaskObj].sort((a, b) => a.position - b.position));
+    } else {
+      const supabase = getSupabase();
+      if (supabase) {
+        await supabase.from('tasks').insert([{
+          title: newTitle, description: newDesc, status: addTaskStatus, position, priority: newPriority, deadline: newDeadline ? new Date(newDeadline).toISOString() : null, created_by: currentUser.id, created_by_name: currentUser.name, edit_strategy: newEditStrategy, move_strategy: newMoveStrategy, permitted_editors: newEditStrategy === 'custom' ? newPermittedEditors : [], permitted_movers: newMoveStrategy === 'custom' ? newPermittedMovers : [], checklist: newChecklist, history: []
+        }]);
+      }
+    }
     setIsAddingTask(false);
   };
 
   const saveEditedTask = async () => {
     if (!editingTask || !currentUser) return;
-    const supabase = getSupabase();
-    if (!supabase) return;
+    
+    setTasks(prev => prev.map(t => t.id === editingTask.id ? {
+      ...t, title: editTitle, description: editDesc, priority: editPriority, deadline: editDeadline ? new Date(editDeadline).toISOString() : undefined, editStrategy: editEditStrategy, moveStrategy: editMoveStrategy, permittedEditors: editEditStrategy === 'custom' ? editPermittedEditors : [], permittedMovers: editMoveStrategy === 'custom' ? editPermittedMovers : [], checklist: editChecklist
+    } : t));
 
-    await supabase
-      .from('tasks')
-      .update({
-        title: editTitle,
-        description: editDesc,
-        priority: editPriority,
-        deadline: editDeadline ? new Date(editDeadline).toISOString() : null, 
-        edit_strategy: editEditStrategy,
-        move_strategy: editMoveStrategy,
-        permitted_editors: editEditStrategy === 'custom' ? editPermittedEditors : [],
-        permitted_movers: editMoveStrategy === 'custom' ? editPermittedMovers : [],
-        checklist: editChecklist
-      })
-      .eq('id', parseInt(editingTask.id, 10));
-
+    if (!isDemoMode) {
+      const supabase = getSupabase();
+      if (supabase) {
+        await supabase.from('tasks').update({
+          title: editTitle, description: editDesc, priority: editPriority, deadline: editDeadline ? new Date(editDeadline).toISOString() : null, edit_strategy: editEditStrategy, move_strategy: editMoveStrategy, permitted_editors: editEditStrategy === 'custom' ? editPermittedEditors : [], permitted_movers: editMoveStrategy === 'custom' ? editPermittedMovers : [], checklist: editChecklist
+        }).eq('id', parseInt(editingTask.id, 10));
+      }
+    }
     setEditingTask(null);
   };
 
@@ -748,36 +699,24 @@ if (!containerRef.current || !currentUser || !interactionChannelRef.current || n
 
   const executeCompleteTaskOnly = async (task: Task) => {
     if (!currentUser || !savedTasks[task.id]) return;
-    const supabase = getSupabase();
-    if (!supabase) return;
+    
+    setTasks(prev => {
+      const updated = { ...prev };
+      delete updated[task.id];
+      return prev.filter(t => t.id !== task.id);
+    });
 
-    const { error } = await supabase.from('tasks').delete().eq('id', parseInt(task.id, 10));
-    if (!error) {
-      setSavedTasks(prev => {
-        const updated = { ...prev };
-        delete updated[task.id];
-        return updated;
-      });
+    if (!isDemoMode) {
+      const supabase = getSupabase();
+      if (supabase) await supabase.from('tasks').delete().eq('id', parseInt(task.id, 10));
     }
   };
 
   const toggleSelectionUser = (userId: string, target: 'new-edit' | 'new-move' | 'edit-edit' | 'edit-move') => {
-    if (target === 'new-edit') {
-      setNewPermittedEditors(p => p.includes(userId) ? p.filter(id => id !== userId) : [...p, userId]);
-    } else if (target === 'new-move') {
-      setNewPermittedMovers(p => p.includes(userId) ? p.filter(id => id !== userId) : [...p, userId]);
-    } else if (target === 'edit-edit') {
-      setEditPermittedEditors(p => p.includes(userId) ? p.filter(id => id !== userId) : [...p, userId]);
-    } else if (target === 'edit-move') {
-      setEditPermittedMovers(p => p.includes(userId) ? p.filter(id => id !== userId) : [...p, userId]);
-    }
-  };
-
-  const handleSelectUserIdentity = (user: Profile) => {
-    setCurrentUser(user);
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('warroom_user_profile', JSON.stringify(user));
-    }
+    if (target === 'new-edit') setNewPermittedEditors(p => p.includes(userId) ? p.filter(id => id !== userId) : [...p, userId]);
+    else if (target === 'new-move') setNewPermittedMovers(p => p.includes(userId) ? p.filter(id => id !== userId) : [...p, userId]);
+    else if (target === 'edit-edit') setEditPermittedEditors(p => p.includes(userId) ? p.filter(id => id !== userId) : [...p, userId]);
+    else if (target === 'edit-move') setEditPermittedMovers(p => p.includes(userId) ? p.filter(id => id !== userId) : [...p, userId]);
   };
 
   const getRemainingTimeSeconds = (lastPingStr: string): number => {
@@ -785,23 +724,87 @@ if (!containerRef.current || !currentUser || !interactionChannelRef.current || n
     return diff <= 0 ? 0 : Math.ceil(diff / 1000);
   };
 
+  // --- LOGIN / AUTHENTICATION METHODS ---
+  const handleDemoLogin = (user: Profile) => {
+    setIsDemoMode(true);
+    setCurrentUser(user);
+  };
+
+  const handleLiveLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthLoading(true);
+    const supabase = getSupabase();
+    
+    const { data, error } = await supabase.auth.signInWithPassword({ email: liveEmail, password: livePassword });
+    
+    if (error) {
+      alert("Access Denied: " + error.message);
+    } else if (data.user) {
+      setIsDemoMode(false);
+      setCurrentUser({
+        id: data.user.id,
+        name: data.user.email?.split('@')[0] || 'Admin',
+        color: '#f59e0b',
+        badge: 'Live Admin',
+        role: 'admin'
+      });
+    }
+    setAuthLoading(false);
+  };
+
+  const executeLogOut = async () => {
+    if (!isDemoMode) {
+      const supabase = getSupabase();
+      await supabase.auth.signOut();
+    }
+    setCurrentUser(null);
+  };
+
+  // --- LOGIN SCREEN RENDER ---
   if (!currentUser) {
     return (
       <div className="w-screen h-screen bg-[#0a0500] flex items-center justify-center p-4 font-mono">
-        <div className="w-full max-w-sm bg-zinc-900 border border-zinc-800 rounded-xl p-6 text-center shadow-2xl">
-          <h2 className="text-white text-sm font-bold uppercase tracking-wider mb-2">Select User Account Identity</h2>
-          <p className="text-zinc-500 text-[11px] mb-5">Choose a testing operator role card profile to access the workspace board metrics.</p>
-          <div className="space-y-2">
-            {TEST_USERS.map((user) => (
-              <button key={user.id} onClick={() => handleSelectUserIdentity(user)} className="w-full text-left px-4 py-3 bg-zinc-900 border border-zinc-800 rounded-lg hover:border-zinc-700 hover:bg-zinc-800/80 transition-all flex items-center justify-between text-xs cursor-pointer group">
-                <div>
-                  <span className="font-bold text-zinc-200 group-hover:text-white">{user.name}</span>
-                  <div className="text-[10px] text-zinc-500 capitalize">{user.role} Profile Strategy</div>
-                </div>
-                <span className="text-[9px] px-2 py-0.5 rounded font-bold border" style={{ borderColor: `${user.color}30`, backgroundColor: `${user.color}10`, color: user.color }}>{user.badge}</span>
-              </button>
-            ))}
+        <div className="w-full max-w-sm bg-zinc-900 border border-zinc-800 rounded-xl p-6 shadow-2xl">
+          <h2 className="text-white text-sm font-bold uppercase tracking-wider mb-4 text-center">Initialize Workspace</h2>
+          
+          <div className="flex bg-[#0a0500] border border-zinc-800 rounded p-1 mb-5">
+            <button onClick={() => setLoginTab('demo')} className={`flex-1 text-[10px] py-1.5 uppercase font-bold rounded ${loginTab === 'demo' ? 'bg-amber-500 text-black' : 'text-zinc-500 hover:text-zinc-300'}`}>Demo Mode (Testers)</button>
+            <button onClick={() => setLoginTab('live')} className={`flex-1 text-[10px] py-1.5 uppercase font-bold rounded ${loginTab === 'live' ? 'bg-rose-600 text-white shadow-[0_0_10px_rgba(225,29,72,0.5)]' : 'text-zinc-500 hover:text-zinc-300'}`}>Live Server</button>
           </div>
+
+          {loginTab === 'demo' ? (
+            <div className="space-y-2 animate-fadeIn">
+              <p className="text-amber-500 text-[10px] mb-4 text-center border border-amber-900 bg-amber-950/30 p-2 rounded">
+                Test mode active. Database writes are disabled. Data resets on refresh.
+              </p>
+              {TEST_USERS.map((user) => (
+                <button key={user.id} onClick={() => handleDemoLogin(user)} className="w-full text-left px-4 py-3 bg-zinc-900 border border-zinc-800 rounded-lg hover:border-zinc-700 hover:bg-zinc-800/80 transition-all flex items-center justify-between text-xs cursor-pointer group">
+                  <div>
+                    <span className="font-bold text-zinc-200 group-hover:text-white">{user.name}</span>
+                    <div className="text-[10px] text-zinc-500 capitalize">{user.role} Profile Strategy</div>
+                  </div>
+                  <span className="text-[9px] px-2 py-0.5 rounded font-bold border" style={{ borderColor: `${user.color}30`, backgroundColor: `${user.color}10`, color: user.color }}>{user.badge}</span>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <form onSubmit={handleLiveLogin} className="space-y-3 animate-fadeIn">
+              <p className="text-rose-500 text-[10px] mb-4 text-center border border-rose-900 bg-rose-950/30 p-2 rounded">
+                ⚠️ LIVE MODE: Requires Supabase Auth. Actions will alter the actual production database.
+              </p>
+              <div>
+                <label className="block text-[10px] text-zinc-500 uppercase font-bold mb-1">Email Terminal</label>
+                <input type="email" value={liveEmail} onChange={(e) => setLiveEmail(e.target.value)} required className="w-full bg-[#0a0500] border border-zinc-800 rounded px-3 py-2 text-white text-xs outline-none focus:border-rose-500" placeholder="admin@domain.com" />
+              </div>
+              <div>
+                <label className="block text-[10px] text-zinc-500 uppercase font-bold mb-1">Access Token (Password)</label>
+                <input type="password" value={livePassword} onChange={(e) => setLivePassword(e.target.value)} required className="w-full bg-[#0a0500] border border-zinc-800 rounded px-3 py-2 text-white text-xs outline-none focus:border-rose-500" placeholder="••••••••" />
+              </div>
+              <button type="submit" disabled={authLoading} className="w-full mt-4 bg-rose-600 hover:bg-rose-500 text-white font-bold uppercase text-[11px] py-2.5 rounded transition-all cursor-pointer">
+                {authLoading ? 'Authenticating...' : 'Connect to Live Server'}
+              </button>
+            </form>
+          )}
         </div>
       </div>
     );
@@ -809,36 +812,29 @@ if (!containerRef.current || !currentUser || !interactionChannelRef.current || n
 
   // Find dynamic layout accent context colors for the add task popup panel header decoration line
   const activeColMeta = COLUMNS.find(c => c.id === addTaskStatus) || COLUMNS[0];
-  {/* GLOBAL ADD TASK MODAL OVERLAY PORTAL */}
-  
-  
 
-  // Notice the 'scanlines' class added right after relative!
   return (
     <div ref={containerRef} onMouseMove={handleMouseMove} className={`w-screen h-screen transition-colors duration-1000 ${defconLevel === 1 ? 'bg-rose-950/80 shadow-[inset_0_0_150px_rgba(225,29,72,0.2)]' : 'bg-[#0a0500]'} text-amber-500 p-4 md:p-6 lg:p-8 overflow-hidden font-sans relative scanlines flex flex-col`}
-style={{
-  backgroundImage: defconLevel !== 1 ? `
-    linear-gradient(to right, rgba(255,255,255,0.03) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(255,255,255,0.03) 1px, transparent 1px)
-  ` : 'none',
-  backgroundSize: '40px 40px'
-}}>
+style={{ backgroundImage: defconLevel !== 1 ? `linear-gradient(to right, rgba(255,255,255,0.03) 1px, transparent 1px), linear-gradient(to bottom, rgba(255,255,255,0.03) 1px, transparent 1px)` : 'none', backgroundSize: '40px 40px' }}>
 
-  {/* OVERNIGHT LOCKOUT BANNER */}
-    <div className="w-full bg-amber-950/80 border border-amber-500/30 p-2 text-center text-[10px] font-mono text-amber-400 uppercase tracking-widest shrink-0">
-      ⚠️ System Lockdown Active: Database RLS Frozen Until Morning Maintenance.
-    </div>
+    {/* OVERNIGHT LOCKOUT BANNER (Only in Live Mode) */}
+    {!isDemoMode && (
+      <div className="w-full bg-amber-950/80 border border-amber-500/30 p-2 text-center text-[10px] font-mono text-amber-400 uppercase tracking-widest shrink-0">
+        ⚠️ System Live: Database Syncing Active.
+      </div>
+    )}
   
       <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-4 border-b border-zinc-900 pb-4 gap-4 shrink-0">
         <div className="flex items-center gap-4">
-          
-          {/* User Info Block */}
           <div>
             <div className="flex items-center gap-2">
               <h1 className="text-sm font-black tracking-wider text-white uppercase">War Room</h1>
-              <span className="text-[9px] bg-blue-500/10 text-blue-400 border border-blue-500/20 px-2 py-0.5 rounded-full font-mono font-bold">V1.0.8</span>
+              {isDemoMode ? (
+                 <span className="text-[9px] bg-amber-500/10 text-amber-500 border border-amber-500/20 px-2 py-0.5 rounded-full font-mono font-bold animate-pulse">DEMO MODE</span>
+              ) : (
+                 <span className="text-[9px] bg-rose-600/20 text-rose-500 border border-rose-500/50 px-2 py-0.5 rounded-full font-mono font-bold shadow-[0_0_10px_rgba(225,29,72,0.5)]">LIVE SERVER</span>
+              )}
             </div>
-            {/* The <p> tag safely closes BEFORE the DEFCON div starts */}
             <p className="text-[11px] text-zinc-500 font-mono mt-0.5">
               Logged in as: <span className="text-zinc-300 font-bold">{currentUser.name} ({currentUser.role.toUpperCase()})</span>
             </p>
@@ -852,28 +848,19 @@ style={{
                 const isActive = defconLevel === level;
                 const isD1 = level === 1;
                 return (
-                  <button
-                    key={level}
-                    onClick={() => executeDefconChange(level)}
-                    className={`w-7 h-7 rounded text-[11px] font-black transition-all cursor-pointer ${
-                      isActive 
-                        ? (isD1 ? 'bg-rose-600 text-white shadow-[0_0_15px_rgba(225,29,72,0.6)] animate-pulse' : 'bg-zinc-200 text-zinc-900') 
-                        : 'bg-[#0a0500] text-zinc-500 hover:bg-zinc-800'
-                    }`}
-                  >
+                  <button key={level} onClick={() => executeDefconChange(level)} className={`w-7 h-7 rounded text-[11px] font-black transition-all cursor-pointer ${isActive ? (isD1 ? 'bg-rose-600 text-white shadow-[0_0_15px_rgba(225,29,72,0.6)] animate-pulse' : 'bg-zinc-200 text-zinc-900') : 'bg-[#0a0500] text-zinc-500 hover:bg-zinc-800'}`}>
                     {level}
                   </button>
                 );
               })}
             </div>
           )}
-
         </div>
         
-        <button onClick={() => setCurrentUser(null)} className="px-3 py-1.5 bg-zinc-900 border border-zinc-800 text-zinc-600 font-mono text-[10px] hover:text-white rounded self-start sm:self-auto cursor-pointer">Switch Account</button>
+        <button onClick={executeLogOut} className="px-3 py-1.5 bg-zinc-900 border border-zinc-800 text-zinc-600 font-mono text-[10px] hover:text-white rounded self-start sm:self-auto cursor-pointer">Disconnect Session</button>
       </header>
-      {/* CRT Scanline Overlay */}
-<div className="pointer-events-none fixed inset-0 z-[9999] opacity-[0.12] mix-blend-overlay bg-[linear-gradient(rgba(0,0,0,0)_50%,rgba(0,0,0,1)_50%)] bg-[length:100%_4px]" />
+      
+      <div className="pointer-events-none fixed inset-0 z-[9999] opacity-[0.12] mix-blend-overlay bg-[linear-gradient(rgba(0,0,0,0)_50%,rgba(0,0,0,1)_50%)] bg-[length:100%_4px]" />
 
       {/* Mobile Column Navigation bar tabs */}
       <div className="flex sm:hidden bg-zinc-900 p-1 border border-zinc-800 rounded-lg mb-4 shrink-0 font-mono text-[10px]">
@@ -884,12 +871,12 @@ style={{
         ))}
       </div>
 
-      {/* Primary Kanban Columns Grid layout */}
-      <div className="flex-1 grid grid-cols-1 sm:grid-cols-3 gap-4 md:gap-6 overflow-hidden h-full">
+      {/* Primary Kanban Columns Grid layout with Mobile Swipe Support */}
+      <div onTouchStart={handleTouchStart} onTouchMove={handleTouchMove} onTouchEnd={handleTouchEnd} className="flex-1 grid grid-cols-1 sm:grid-cols-3 gap-4 md:gap-6 overflow-hidden h-full pb-10">
         {COLUMNS.map((col) => {
           const filteredTasks = tasks.filter((t) => t.status === col.id);
           return (
-            <div key={col.id} onDragOver={(e) => e.preventDefault()} onDrop={(e) => handleDrop(e, col.id)} className={`bg-zinc-900/30 border ${col.border} rounded-xl p-4 flex flex-col h-full overflow-hidden ${activeMobileTab === col.id ? 'flex' : 'hidden sm:flex'}`}>
+            <div key={col.id} onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); const taskId = e.dataTransfer.getData('text/plain'); if (taskId) executeMoveOperation(taskId, col.id); }} className={`bg-zinc-900/30 border ${col.border} rounded-xl p-4 flex flex-col h-full overflow-hidden ${activeMobileTab === col.id ? 'flex' : 'hidden sm:flex'}`}>
               <div className="flex items-center justify-between mb-4 pb-2 border-b border-zinc-900/50 shrink-0">
                 <div className="flex items-center gap-2">
                   <span className={`w-1.5 h-3 ${col.accent} rounded-sm`} />
@@ -922,33 +909,20 @@ style={{
                     const isWorker = task.activeSession?.userId === currentUser.id;
                     const strategy = STRATEGY_THEMES[task.editStrategy] || STRATEGY_THEMES.anyone;
                     const remSeconds = task.activeSession ? getRemainingTimeSeconds(task.activeSession.lastCheckedInAt) : 60;
-                    // 1. Calculate if the task should be dimmed
-                    // 1. DEFCON & Heat Calculations
-const isDefconDimmed = defconLevel === 1 && task.priority !== 'critical';
-const heat = taskHeat[task.id] || 0;
+                    
+                    const isDefconDimmed = defconLevel === 1 && task.priority !== 'critical';
+                    const heat = taskHeat[task.id] || 0;
 
-// Dynamic Heatmap Styles
-const heatStyles = heat > 70 
-  ? 'shadow-[0_0_20px_rgba(225,29,72,0.4)] border-rose-500 bg-rose-950/20' // RED HOT
-  : heat > 30 
-  ? 'shadow-[0_0_15px_rgba(245,158,11,0.3)] border-amber-500/80 bg-amber-950/10' // WARM
-  : 'border-zinc-800'; // COLD
+                    const heatStyles = heat > 70 
+                      ? 'shadow-[0_0_20px_rgba(225,29,72,0.4)] border-rose-500 bg-rose-950/20' 
+                      : heat > 30 
+                      ? 'shadow-[0_0_15px_rgba(245,158,11,0.3)] border-amber-500/80 bg-amber-950/10' 
+                      : 'border-zinc-800'; 
 
-// Fog of War (dim cold tasks unless we are in DEFCON 1, which has its own dimming rules)
-const fogStyles = (heat === 0 && defconLevel !== 1) ? 'opacity-50 hover:opacity-100' : 'opacity-100';
+                    const fogStyles = (heat === 0 && defconLevel !== 1) ? 'opacity-50 hover:opacity-100' : 'opacity-100';
 
-return (
-  <div 
-    key={task.id} 
-    draggable={moveAllowed && !softLocked && !isDefconDimmed} 
-    onDragStart={(e) => handleDragStart(e, task)} 
-    onMouseEnter={() => handleTaskHover(task.id)} // <-- TRIGGERS THE HEAT
-    className={`bg-zinc-900 border transition-all duration-700 
-      ${softLocked ? 'border-rose-900/40 opacity-70' : task.activeSession ? 'border-amber-500/50 shadow-lg shadow-amber-500/5' : heatStyles} 
-      ${isDefconDimmed ? 'opacity-20 grayscale pointer-events-none scale-95' : `scale-100 ${fogStyles}`} 
-      rounded-lg p-3 relative ${strategy.bgCard}`}
-  >
-
+                    return (
+                      <div key={task.id} draggable={moveAllowed && !softLocked && !isDefconDimmed} onDragStart={(e) => handleDragStart(e, task)} onMouseEnter={() => handleTaskHover(task.id)} className={`bg-zinc-900 border transition-all duration-700 ${softLocked ? 'border-rose-900/40 opacity-70' : task.activeSession ? 'border-amber-500/50 shadow-lg shadow-amber-500/5' : heatStyles} ${isDefconDimmed ? 'opacity-20 grayscale pointer-events-none scale-95' : `scale-100 ${fogStyles}`} rounded-lg p-3 relative ${strategy.bgCard}`}>
                         {softLocked && (
                           <div className="absolute top-2 right-2 text-[9px] font-mono text-rose-400 bg-rose-950/40 border border-rose-900/50 px-1.5 py-0.5 rounded uppercase font-bold animate-pulse">Locked by {task.activeSession?.userName}</div>
                         )}
@@ -958,9 +932,9 @@ return (
                           <span className={`uppercase font-bold text-[8px] px-1 bg-[#0a0500] rounded ${strategy.text}`}>{task.editStrategy}</span>
                         </div>
 
-                       <h4 className={`text-xs font-bold uppercase tracking-tight truncate ${task.status === 'done' ? 'text-rose-500 line-through opacity-70 font-mono' : 'text-amber-500'}`}>
-  {task.status === 'done' ? '[X] ' : ''}{task.title}
-</h4>
+                        <h4 className={`text-xs font-bold uppercase tracking-tight truncate ${task.status === 'done' ? 'text-rose-500 line-through opacity-70 font-mono' : 'text-amber-500'}`}>
+                          {task.status === 'done' ? '[X] ' : ''}{task.title}
+                        </h4>
                         {task.description && <p className="text-[11px] text-zinc-600 line-clamp-2 mt-1 leading-normal">{task.description}</p>}
 
                         {task.activeSession && (
@@ -974,9 +948,8 @@ return (
 
                         {task.checklist && task.checklist.length > 0 && (
                           <div className="mt-3 space-y-1 bg-[#0a0500]/30 p-1.5 rounded border border-zinc-900">
-                            
-    {task.checklist.map((item: ChecklistItem) => (
-      <button key={item.id} onClick={() => toggleChecklistItem(task, item.id)} disabled={softLocked} className="w-full flex items-center gap-2 text-left text-[10px] font-mono text-zinc-600 hover:text-zinc-200">
+                            {task.checklist.map((item: ChecklistItem) => (
+                              <button key={item.id} onClick={() => toggleChecklistItem(task, item.id)} disabled={softLocked} className="w-full flex items-center gap-2 text-left text-[10px] font-mono text-zinc-600 hover:text-zinc-200">
                                 <span className={`w-2.5 h-2.5 border rounded-sm flex items-center justify-center text-[7px] font-black ${item.isCompleted ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400' : 'border-zinc-800 bg-zinc-900'}`}>{item.isCompleted ? '✓' : ''}</span>
                                 <span className={`truncate ${item.isCompleted ? 'line-through text-zinc-600' : ''}`}>{item.text}</span>
                               </button>
@@ -1006,7 +979,6 @@ return (
                                 setEditMoveStrategy(task.moveStrategy);
                                 setEditPermittedEditors(task.permittedEditors || []);
                                 setEditPermittedMovers(task.permittedMovers || []);
-                                
                               }} className="px-1.5 py-0.5 bg-zinc-900 text-zinc-600 hover:text-white border border-zinc-800 rounded text-[9px] uppercase cursor-pointer">Edit</button>
                             )}
                           </div>
@@ -1016,29 +988,21 @@ return (
                               <div className="relative">
                                 <button onClick={() => setActiveMoveMenuId(activeMoveMenuId === task.id ? null : task.id)} className="px-1.5 py-0.5 bg-[#0a0500] border border-zinc-800 text-zinc-300 rounded text-[9px] font-bold cursor-pointer uppercase">Move Column</button>
                                 {activeMoveMenuId === task.id && (
-  <div className="absolute right-0 bottom-full mb-1 w-28 bg-zinc-900 border border-zinc-800 rounded shadow-xl z-50 py-1 text-[9px]">
-    {COLUMNS.map(c => {
-      const currentIdx = COLUMNS.findIndex(col => col.id === task.status);
-      const targetIdx = COLUMNS.findIndex(col => col.id === c.id);
-      const arrow = targetIdx < currentIdx ? '← ' : targetIdx > currentIdx ? '→ ' : '';
-      
-      // Matches the signature colors of the columns
-      const arrowColor = c.id === 'todo' ? 'text-blue-400' : c.id === 'in-progress' ? 'text-amber-400' : 'text-emerald-400';
+                                  <div className="absolute right-0 bottom-full mb-1 w-28 bg-zinc-900 border border-zinc-800 rounded shadow-xl z-50 py-1 text-[9px]">
+                                    {COLUMNS.map(c => {
+                                      const currentIdx = COLUMNS.findIndex(col => col.id === task.status);
+                                      const targetIdx = COLUMNS.findIndex(col => col.id === c.id);
+                                      const arrow = targetIdx < currentIdx ? '← ' : targetIdx > currentIdx ? '→ ' : '';
+                                      const arrowColor = c.id === 'todo' ? 'text-blue-400' : c.id === 'in-progress' ? 'text-amber-400' : 'text-emerald-400';
 
-      return (
-        <button 
-          key={c.id} 
-          disabled={task.status === c.id} 
-          onClick={() => executeMoveOperation(task.id, c.id)} 
-          className={`w-full px-2 py-1 text-left uppercase font-bold ${task.status === c.id ? 'text-zinc-600 bg-[#0a0500]/40 cursor-not-allowed' : 'text-zinc-300 hover:bg-zinc-800'}`}
-        >
-          {arrow && <span className={`${arrowColor} font-sans font-bold mr-0.5`}>{arrow}</span>}to {c.id === 'todo' ? 'To Do' : c.id === 'in-progress' ? 'In Progress' : 'Done'}
-        </button>
-      );
-    })}
-    
-  </div>
-)}
+                                      return (
+                                        <button key={c.id} disabled={task.status === c.id} onClick={() => executeMoveOperation(task.id, c.id)} className={`w-full px-2 py-1 text-left uppercase font-bold ${task.status === c.id ? 'text-zinc-600 bg-[#0a0500]/40 cursor-not-allowed' : 'text-zinc-300 hover:bg-zinc-800'}`}>
+                                          {arrow && <span className={`${arrowColor} font-sans font-bold mr-0.5`}>{arrow}</span>}to {c.id === 'todo' ? 'To Do' : c.id === 'in-progress' ? 'In Progress' : 'Done'}
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                )}
                               </div>
                             )}
 
@@ -1059,10 +1023,7 @@ return (
                           <div className="flex items-center gap-2 text-zinc-500">
                             <span>📻 Comm-Link:</span>
                             {task.voiceMemo ? (
-                              <button 
-                                onClick={() => playVoiceMemo(task.voiceMemo!)}
-                                className="px-2 py-0.5 bg-sky-950 text-sky-400 border border-sky-900 rounded font-bold uppercase hover:bg-sky-900 transition-colors flex items-center gap-1"
-                              >
+                              <button onClick={() => playVoiceMemo(task.voiceMemo!)} className="px-2 py-0.5 bg-sky-950 text-sky-400 border border-sky-900 rounded font-bold uppercase hover:bg-sky-900 transition-colors flex items-center gap-1">
                                 ▶ Play Log
                               </button>
                             ) : (
@@ -1096,17 +1057,18 @@ return (
             </div>
           );
         })}
+      </div>
 
-        {/* --- LIVE COMMS CHATTER TICKER --- */}
-      <div className="absolute bottom-0 left-0 right-0 h-6 bg-[#0a0500] border-t border-zinc-900 flex items-center overflow-hidden z-40 font-mono text-[10px] uppercase tracking-wider">
+      {/* --- LIVE COMMS CHATTER TICKER --- */}
+      <div className="fixed bottom-0 left-0 right-0 h-8 bg-[#0a0500] border-t border-zinc-900 flex items-center overflow-hidden z-40 font-mono text-[10px] uppercase tracking-wider">
         <div className="px-3 bg-zinc-900 h-full flex items-center border-r border-zinc-800 text-zinc-600 font-bold z-10 shrink-0 shadow-[5px_0_10px_rgba(0,0,0,0.5)]">
           📻 CHATTER
         </div>
         <div className="flex-1 overflow-hidden relative h-full flex items-center">
           {recentLogs.length > 0 ? (
-            <div className={`animate-ticker ${defconLevel === 1 ? 'defcon-1-ticker font-black' : 'text-zinc-500'}`}>
+            <div className={`animate-ticker flex whitespace-nowrap ${defconLevel === 1 ? 'defcon-1-ticker font-black' : 'text-zinc-500'}`}>
               {recentLogs.map((log, i) => (
-                <span key={i} className="mx-8">
+                <span key={i} className="mx-8 inline-block">
                   <span className="opacity-50">[{new Date(log.timestamp).toLocaleTimeString()}]</span> 
                   <span className="text-blue-400 ml-1">{log.movedBy}</span>: {log.notes} 
                   <span className="opacity-50 ml-1">(REF: {log.taskTitle})</span>
@@ -1119,14 +1081,11 @@ return (
         </div>
       </div>
 
-        {/* --- ADD TASK MODAL OVERLAY --- */}
+      {/* --- ADD TASK MODAL OVERLAY --- */}
       {isAddingTask && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm font-mono animate-fadeIn">
           <div className="w-full max-w-md bg-[#0a0500] border border-zinc-800 rounded-xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
-            
-            {/* Dynamic header colored border band accent tracker */}
             <div className={`h-1 w-full ${activeColMeta.accent}`} />
-            
             <div className="p-4 border-b border-zinc-900 flex justify-between items-center bg-zinc-900/20">
               <div>
                 <h3 className="text-xs font-black text-white uppercase tracking-wider">Initialize Task Node</h3>
@@ -1146,7 +1105,7 @@ return (
                 <textarea placeholder="Description details..." value={newDesc} onChange={(e) => setNewDesc(e.target.value)} className="w-full bg-zinc-900 border border-zinc-800 rounded p-1.5 text-white uppercase text-[10px] focus:outline-none focus:border-zinc-700 h-16 resize-none" />
               </div>
 
-              {/* PRIORITY SELECTION (Added in Phase 2) */}
+              {/* PRIORITY SELECTION */}
               <div>
                 <label className="block text-zinc-500 uppercase font-bold tracking-wider mb-1">Tactical Priority</label>
                 <div className="flex gap-1">
@@ -1262,7 +1221,6 @@ return (
                   <option value="custom">Custom Operators</option>
                 </select>
               </div>
-
             </div>
 
             {/* SUBMISSION OPERATIONS ROW BAR */}
@@ -1273,17 +1231,12 @@ return (
           </div>
         </div>
       )}
-      </div>
 
-      {/* --- RE-STYLED ADD TASK ACTION MODAL LAYOUT --- */}
-      {/* GLOBAL ADD TASK MODAL OVERLAY PORTAL */}
-  {/* --- EDIT TASK MODAL OVERLAY --- */}
+      {/* --- EDIT TASK MODAL OVERLAY --- */}
       {editingTask && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm font-mono animate-fadeIn">
           <div className="w-full max-w-md bg-[#0a0500] border border-zinc-800 rounded-xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
-            
             <div className="h-1 w-full bg-zinc-500" />
-            
             <div className="p-4 border-b border-zinc-900 flex justify-between items-center bg-zinc-900/20">
               <div>
                 <h3 className="text-xs font-black text-white uppercase tracking-wider">Modify Task Node</h3>
@@ -1295,69 +1248,45 @@ return (
             <div className="p-4 overflow-y-auto space-y-4 text-[10px]">
               <div>
                 <label className="block text-zinc-500 uppercase font-bold tracking-wider mb-1">Task Title</label>
-                <input
-                  type="text"
-                  value={editTitle}
-                  onChange={(e) => setEditTitle(e.target.value)}
-                  className="w-full bg-zinc-900 border border-zinc-800 rounded p-1.5 text-white uppercase text-[10px] focus:outline-none focus:border-zinc-700"
-                />
+                <input type="text" value={editTitle} onChange={(e) => setEditTitle(e.target.value)} className="w-full bg-zinc-900 border border-zinc-800 rounded p-1.5 text-white uppercase text-[10px] focus:outline-none focus:border-zinc-700" />
               </div>
 
               <div>
                 <label className="block text-zinc-500 uppercase font-bold tracking-wider mb-1">Description</label>
-                <textarea
-                  value={editDesc}
-                  onChange={(e) => setEditDesc(e.target.value)}
-                  className="w-full bg-zinc-900 border border-zinc-800 rounded p-1.5 text-white uppercase text-[10px] focus:outline-none focus:border-zinc-700 h-16 resize-none"
-                />
+                <textarea value={editDesc} onChange={(e) => setEditDesc(e.target.value)} className="w-full bg-zinc-900 border border-zinc-800 rounded p-1.5 text-white uppercase text-[10px] focus:outline-none focus:border-zinc-700 h-16 resize-none" />
               </div>
+
               {/* PRIORITY SELECTION */}
-          <div>
-            <label className="block text-zinc-500 uppercase font-bold tracking-wider mb-1">Tactical Priority</label>
-            <div className="flex gap-1">
-              {(['low', 'medium', 'high', 'critical'] as const).map((p) => {
-                const isActive = newPriority === p; // Change to editPriority in the Edit modal!
-                const colors = {
-                  low: 'text-zinc-600 border-zinc-800 bg-zinc-900',
-                  medium: 'text-blue-400 border-blue-900 bg-blue-950/30',
-                  high: 'text-amber-400 border-amber-900 bg-amber-950/30',
-                  critical: 'text-rose-400 border-rose-900 bg-rose-950/30 shadow-[0_0_10px_rgba(225,29,72,0.2)] animate-pulse'
-                };
-                
-                return (
-                  <button
-                    key={p}
-                    type="button"
-                    onClick={() => setNewPriority(p)} // Change to setEditPriority in the Edit modal!
-                    className={`flex-1 py-1.5 px-1 border rounded text-[9px] font-bold uppercase transition-all ${isActive ? colors[p] : 'bg-[#0a0500] border-zinc-900 text-zinc-600 hover:border-zinc-700'}`}
-                  >
-                    {p}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
+              <div>
+                <label className="block text-zinc-500 uppercase font-bold tracking-wider mb-1">Tactical Priority</label>
+                <div className="flex gap-1">
+                  {(['low', 'medium', 'high', 'critical'] as const).map((p) => {
+                    const isActive = editPriority === p; 
+                    const colors = {
+                      low: 'text-zinc-600 border-zinc-800 bg-zinc-900',
+                      medium: 'text-blue-400 border-blue-900 bg-blue-950/30',
+                      high: 'text-amber-400 border-amber-900 bg-amber-950/30',
+                      critical: 'text-rose-400 border-rose-900 bg-rose-950/30 shadow-[0_0_10px_rgba(225,29,72,0.2)] animate-pulse'
+                    };
+                    return (
+                      <button key={p} type="button" onClick={() => setEditPriority(p)} className={`flex-1 py-1.5 px-1 border rounded text-[9px] font-bold uppercase transition-all ${isActive ? colors[p] : 'bg-[#0a0500] border-zinc-900 text-zinc-600 hover:border-zinc-700'}`}>
+                        {p}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
 
               {/* Edit Checklist Engine */}
               <div className="space-y-1">
                 <label className="block text-zinc-500 uppercase font-bold tracking-wider">Sub Task Checklist</label>
                 <div className="flex gap-1">
-                  <input
-                    type="text"
-                    placeholder="Add checklist item..."
-                    value={newChecklistItemText}
-                    onChange={(e) => setNewChecklistItemText(e.target.value)}
-                    className="flex-1 bg-zinc-900 border border-zinc-800 rounded p-1.5 text-white uppercase text-[10px] focus:outline-none"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => {
+                  <input type="text" placeholder="Add checklist item..." value={newChecklistItemText} onChange={(e) => setNewChecklistItemText(e.target.value)} className="flex-1 bg-zinc-900 border border-zinc-800 rounded p-1.5 text-white uppercase text-[10px] focus:outline-none" />
+                  <button type="button" onClick={() => {
                       if (!newChecklistItemText.trim()) return;
                       setEditChecklist([...editChecklist, { id: crypto.randomUUID(), text: newChecklistItemText.trim(), isCompleted: false }]);
                       setNewChecklistItemText('');
-                    }}
-                    className="px-3 bg-zinc-900 border border-zinc-800 text-zinc-600 hover:text-white rounded uppercase text-[9px] font-bold"
-                  >
+                    }} className="px-3 bg-zinc-900 border border-zinc-800 text-zinc-600 hover:text-white rounded uppercase text-[9px] font-bold">
                     Add
                   </button>
                 </div>
@@ -1410,9 +1339,8 @@ return (
               {(!activeHistoryTask.history || activeHistoryTask.history.length === 0) ? (
                 <div className="text-center py-6 text-zinc-600 text-[10px]">No historic entries located within database memory ledger store</div>
               ) : (
-                
-    activeHistoryTask.history.map((log: AuditLog, idx: number) => (
-      <div key={idx} className="p-2 bg-[#0a0500] rounded border border-zinc-800 text-[10px]">
+                activeHistoryTask.history.map((log: AuditLog, idx: number) => (
+                  <div key={idx} className="p-2 bg-[#0a0500] rounded border border-zinc-800 text-[10px]">
                     <div className="flex justify-between text-zinc-500 font-bold text-[9px] mb-1">
                       <span>Operator: {log.movedBy}</span>
                       <span>{log.timestamp ? new Date(log.timestamp).toLocaleTimeString() : 'Unknown Time'}</span>
@@ -1430,7 +1358,7 @@ return (
       )}
 
       {/* Dynamic Cursor Telemetry presence map tracker overlay layout */}
-      {mounted && Object.values(presences).map((p) => {
+      {mounted && !isDemoMode && Object.values(presences).map((p) => {
         if (!p || p.id === currentUser.id) return null;
         return (
           <div key={p.id} className="absolute pointer-events-none transition-all duration-75 z-50 text-[9px] font-mono font-bold uppercase tracking-tighter shadow-lg rounded px-1.5 py-0.5 text-white" style={{ left: `${p.x}%`, top: `${p.y}%`, backgroundColor: p.color }}>
