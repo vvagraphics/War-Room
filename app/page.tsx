@@ -237,8 +237,8 @@ export default function WarRoom() {
       .on('presence', { event: 'sync' }, () => {
         const state = presenceChannelRef.current.presenceState();
         const activeUsers: Record<string, UserPresence> = {};
-        Object.keys(state).forEach((key) => {
-          const userTrack = state[key]?.[0];
+        Object.keys(state).forEach((key: string) => {
+          const userTrack = state[key as any]?.[0];
           if (userTrack && userTrack.id) {
             activeUsers[userTrack.id] = {
               id: userTrack.id,
@@ -698,19 +698,16 @@ export default function WarRoom() {
   };
 
   const executeCompleteTaskOnly = async (task: Task) => {
-    if (!currentUser || !savedTasks[task.id]) return;
-    
-    setTasks(prev => {
-      const updated = { ...prev };
-      delete updated[task.id];
-      return prev.filter(t => t.id !== task.id);
-    });
+  if (!currentUser || !savedTasks[task.id]) return;
+  
+  // Directly filter the array; no need to create an object copy
+  setTasks((prev) => prev.filter((t) => t.id !== task.id));
 
-    if (!isDemoMode) {
-      const supabase = getSupabase();
-      if (supabase) await supabase.from('tasks').delete().eq('id', parseInt(task.id, 10));
-    }
-  };
+  if (!isDemoMode) {
+    const supabase = getSupabase();
+    if (supabase) await supabase.from('tasks').delete().eq('id', parseInt(task.id, 10));
+  }
+};
 
   const toggleSelectionUser = (userId: string, target: 'new-edit' | 'new-move' | 'edit-edit' | 'edit-move') => {
     if (target === 'new-edit') setNewPermittedEditors(p => p.includes(userId) ? p.filter(id => id !== userId) : [...p, userId]);
